@@ -411,9 +411,48 @@ def _setup_frozen_logging():
         f = open(log_path, "w", encoding="utf-8", buffering=1)
         sys.stdout = f
         sys.stderr = f
-        print(f"SpeakToSpeech launching — log {log_path}")
+        print(f"SpeakToSpeech launching - log {log_path}")
     except Exception:
         pass
+
+
+def _selftest():
+    """Verify the bundled pronunciation stack: import torch/transformers, load
+    the model from cache, and run a tiny inference. Writes PASS/FAIL to the log.
+    Triggered with --selftest; used to validate the frozen build."""
+    import numpy as np
+
+    def step(name, fn):
+        try:
+            fn()
+            print(f"PASS  {name}", flush=True)
+            return True
+        except Exception as e:
+            print(f"FAIL  {name}: {type(e).__name__}: {e}", flush=True)
+            return False
+
+    print("=== pronunciation self-test ===", flush=True)
+    ok = True
+    ok &= step("import torch", lambda: __import__("torch"))
+    ok &= step("import transformers", lambda: __import__("transformers"))
+    ok &= step("import soundfile", lambda: __import__("soundfile"))
+
+    from pronunciation import PronunciationWorker
+    worker = PronunciationWorker()
+    ok &= step("load model", worker.load)
+
+    def infer():
+        import torch
+        # 1 second of quiet noise at 16kHz — exercises the full torch path.
+        audio = (np.random.randn(16000) * 0.01).astype("float32")
+        inputs = worker._fe(audio, sampling_rate=16000, return_tensors="pt", padding=True)
+        with torch.no_grad():
+            logits = worker._model(inputs.input_values).logits
+        assert logits.shape[-1] > 0
+
+    ok &= step("run inference", infer)
+    print("=== self-test", "PASSED" if ok else "FAILED", "===", flush=True)
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
@@ -426,6 +465,8 @@ if __name__ == "__main__":
     if getattr(sys, "frozen", False):
         _setup_frozen_logging()
         try:
+            if "--selftest" in sys.argv:
+                _selftest()
             main()
         except SystemExit:
             raise

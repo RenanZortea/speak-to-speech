@@ -1,10 +1,10 @@
-# build.ps1 — end-to-end build for SpeakToSpeech.
+# build.ps1 - end-to-end build for SpeakToSpeech.
 #
 # Steps:
-#   1. npm run build  → frontend/dist/
-#   2. PyInstaller    → dist/SpeakToSpeech/
-#   3. Inno Setup     → dist/SpeakToSpeech-Setup-<version>.exe   (unless -SkipInstaller)
-#   4. Compress       → dist/SpeakToSpeech-portable-<date>.zip   (unless -SkipZip)
+#   1. npm run build  -> frontend/dist/
+#   2. PyInstaller    -> dist/SpeakToSpeech/
+#   3. Inno Setup     -> dist/SpeakToSpeech-Setup-<version>.exe   (unless -SkipInstaller)
+#   4. Compress       -> dist/SpeakToSpeech-portable-<date>.zip   (unless -SkipZip)
 #
 # Usage:
 #   .\build.ps1
@@ -117,7 +117,7 @@ if (-not $SkipInstaller) {
         if ($cmd) { $iscc = $cmd.Source }
     }
     if (-not $iscc) {
-        Write-Host "  Inno Setup (ISCC.exe) not found — skipping installer." -ForegroundColor Yellow
+        Write-Host "  Inno Setup (ISCC.exe) not found - skipping installer." -ForegroundColor Yellow
         Write-Host "  Install via: winget install JRSoftware.InnoSetup" -ForegroundColor Yellow
     } else {
         & $iscc "/DMyAppVersion=$AppVersion" (Join-Path $ProjectRoot "installer.iss")

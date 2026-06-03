@@ -9,7 +9,11 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
 
 # -----------------------------------------------------------------------------
 # Paths
@@ -67,6 +71,10 @@ datas += collect_data_files("faster_whisper")
 datas += collect_data_files("huggingface_hub")
 datas += collect_data_files("webview")
 datas += collect_data_files("av")
+# Pronunciation stack data files (the torch/transformers/soundfile hooks in
+# pyinstaller-hooks-contrib handle most binaries; these cover stray data).
+datas += collect_data_files("transformers")
+datas += collect_data_files("soundfile")
 
 # -----------------------------------------------------------------------------
 # Hidden imports — modules PyInstaller's static analysis misses
@@ -90,17 +98,37 @@ hiddenimports = [
     # pythonnet (pywebview's CLR loader on Windows)
     "clr_loader",
     "clr_loader.types",
-    # tokenizers (from faster_whisper)
+    # tokenizers (from faster_whisper + transformers)
     "tokenizers",
-]
+    # Pronunciation: torch (CPU) + transformers wav2vec2 + soundfile.
+    # These are lazily imported inside pronunciation.py, so static analysis
+    # misses them — list explicitly. The hooks-contrib hooks handle the heavy
+    # binary collection (torch/lib DLLs, libsndfile).
+    "torch",
+    "transformers",
+    "transformers.models.wav2vec2",
+    "transformers.models.wav2vec2.modeling_wav2vec2",
+    "transformers.models.wav2vec2.feature_extraction_wav2vec2",
+    "transformers.models.wav2vec2.configuration_wav2vec2",
+    "soundfile",
+    "safetensors",
+    "safetensors.torch",
+    # Resource monitor (pynvml is imported lazily in resources.py).
+    "psutil",
+    "pynvml",
+] + collect_submodules("transformers.models.wav2vec2")
 
 # -----------------------------------------------------------------------------
 # Exclude heavyweight deps we don't use (keeps the bundle smaller).
 # -----------------------------------------------------------------------------
+# NOTE: torch is intentionally NOT excluded — it's needed for pronunciation.
+# We keep the other heavy ML frameworks excluded (transformers works fine
+# without them; it detects their absence at runtime).
 excludes = [
-    "torch", "torchaudio", "torchvision",
-    "tensorflow", "jax", "jaxlib",
-    "matplotlib", "pandas", "scipy", "sklearn",
+    "torchaudio", "torchvision",
+    "tensorflow", "tensorflow_text",
+    "jax", "jaxlib", "flax",
+    "matplotlib", "pandas",
     "PIL", "Pillow",
     "PyQt5", "PyQt6", "PySide2", "PySide6",
     "IPython", "ipykernel", "jupyter", "notebook",
