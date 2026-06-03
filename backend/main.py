@@ -37,6 +37,9 @@ from model_manager import (
     languages_payload,
     list_models,
 )
+from orchestration import JobLane, ResourceManager
+from pronunciation import PRON_MODEL_ID, PronunciationWorker
+from session_store import SessionStore
 from worker import WhisperWorker
 
 DEV_URL = "http://localhost:5173"
@@ -54,13 +57,21 @@ class Api:
     """Exposed to JS as `window.pywebview.api.<method>`."""
 
     def __init__(self):
-        self._worker = WhisperWorker()
+        self._resources = ResourceManager()
+        self._worker = WhisperWorker(resource_manager=self._resources)
+        self._pron = PronunciationWorker()
+        self._jobs = JobLane(on_state=self._on_job_state)
         self._audio = AudioServer()
         self._audio.start()
+        self._sessions = SessionStore()
         self._window = None
         # Active selection — Hebrew by default. Persists across transcribes.
         self._active_model_id = DEFAULT_MODEL_ID
         self._active_language = DEFAULT_LANGUAGE
+
+    def _on_job_state(self, job_name):
+        """JobLane state callback → single busy/idle signal to the UI."""
+        self._emit("job_state", {"busy": job_name is not None, "job": job_name})
 
     # Methods prefixed with `_` are not exposed to JS by pywebview.
     def _set_window(self, window):
@@ -145,6 +156,75 @@ class Api:
         ok = mm_cancel_download(model_id)
         return {"cancelled": ok, "model_id": model_id}
 
+    # ---- Pronunciation ----
+
+    def check_pron_model(self):
+        return {
+            "model_id": PRON_MODEL_ID,
+            "present": is_model_present(PRON_MODEL_ID),
+            "loaded": self._pron.is_loaded,
+        }
+
+    def download_pron_model(self):
+        def run():
+            mm_download_model(PRON_MODEL_ID, lambda p: self._emit("pron_model_download", p))
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True, "model_id": PRON_MODEL_ID}
+
+    def cancel_pron_download(self):
+        ok = mm_cancel_download(PRON_MODEL_ID)
+        return {"cancelled": ok}
+
+    def assess_pronunciation(self, audio_path: str):
+        def job():
+            self._pron.assess(
+                audio_path,
+                on_done=lambda d: self._emit("pron_status", {"status": "done", **d}),
+                on_error=lambda err: self._emit("pron_status", {"status": "error", "error": err}),
+                on_status=lambda s: self._emit("pron_status", s),
+            )
+
+        def run():
+            ok = self._jobs.try_run("pronunciation", job)
+            if not ok:
+                self._emit("pron_status", {
+                    "status": "error",
+                    "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
+                })
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True}
+
+    # ---- Sessions (persistence) ----
+
+    def save_session(self, data: dict):
+        return self._sessions.save_session(data or {})
+
+    def update_session(self, session_id: str, data: dict):
+        return self._sessions.update_session(session_id, data or {})
+
+    def list_sessions(self):
+        return self._sessions.list_sessions()
+
+    def load_session(self, session_id: str):
+        sess = self._sessions.load_session(session_id)
+        if sess is None:
+            return None
+        # Point the audio server at the stored file so it can be played back.
+        stored = sess.get("audio_stored_path")
+        if stored and os.path.isfile(stored):
+            self._audio.set_audio(stored)
+            sess["audio_url"] = self._audio.url
+        else:
+            sess["audio_url"] = None
+        return sess
+
+    def rename_session(self, session_id: str, title: str):
+        return {"ok": self._sessions.rename_session(session_id, title)}
+
+    def delete_session(self, session_id: str):
+        return {"ok": self._sessions.delete_session(session_id)}
+        return {"started": True}
+
     def save_text(self, content: str, default_name: str = "transcript.txt"):
         """Open native save dialog; write UTF-8 content; return saved path or None."""
         if not self._window:
@@ -194,7 +274,7 @@ class Api:
         self._active_model_id = model_id
         self._active_language = language_raw
 
-        def run():
+        def job():
             self._worker.transcribe(
                 audio_path,
                 on_segment=lambda s: self._emit("segment", s),
@@ -205,6 +285,14 @@ class Api:
                 temperature=temperature,
                 language=language,
             )
+
+        def run():
+            ok = self._jobs.try_run("transcribe", job)
+            if not ok:
+                self._emit("transcribe_status", {
+                    "status": "error",
+                    "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
+                })
         threading.Thread(target=run, daemon=True).start()
         return {"started": True, "model_id": model_id, "language": language_raw}
 

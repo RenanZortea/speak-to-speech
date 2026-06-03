@@ -19,6 +19,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from orchestration import ModelHost
+
 # Derive the NVIDIA DLL location.
 #   - Bundled (PyInstaller): DLLs live under sys._MEIPASS/nvidia/* (placed there
 #     by the .spec file's `binaries=` directive).
@@ -56,23 +58,32 @@ for _p in _PRELOAD:
         except OSError:
             pass  # some cudnn submodules may not be needed; let faster-whisper try later
 
-class WhisperWorker:
-    def __init__(self):
-        self._model = None
-        self._current_id: Optional[str] = None
-        self._lock = threading.Lock()
+class WhisperWorker(ModelHost):
+    id = "whisper"
+    device = "cuda"
 
-    @property
-    def is_loaded(self) -> bool:
-        return self._model is not None
+    def __init__(self, resource_manager=None):
+        super().__init__()
+        self._current_id: Optional[str] = None
+        self._rm = resource_manager
+        if resource_manager is not None:
+            resource_manager.register(self)
 
     @property
     def current_id(self) -> Optional[str]:
         return self._current_id
 
+    def _on_unload(self):
+        self._current_id = None
+
     def load(self, model_id: str):
         """Load `model_id`. If a different model is already loaded, unload it first
-        (RTX 2060 has only 6 GB VRAM — loading on top would OOM)."""
+        (RTX 2060 has only 6 GB VRAM — loading on top would OOM). Also asks the
+        resource manager to free the GPU of any *other* model first."""
+        # Free GPU of other models BEFORE taking our own lock (avoids deadlock;
+        # claim_gpu may unload sibling workers which take their own locks).
+        if self._rm is not None:
+            self._rm.claim_gpu(self)
         with self._lock:
             if self._model is not None and self._current_id == model_id:
                 return
@@ -84,14 +95,6 @@ class WhisperWorker:
             from faster_whisper import WhisperModel
             self._model = WhisperModel(model_id, device="cuda", compute_type="float16")
             self._current_id = model_id
-
-    def unload(self):
-        with self._lock:
-            if self._model is not None:
-                del self._model
-                self._model = None
-                self._current_id = None
-                gc.collect()
 
     def transcribe(
         self,

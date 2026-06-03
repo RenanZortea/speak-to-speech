@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Cpu, Loader2, AlertCircle, Download } from "lucide-react";
+import {
+  CheckCircle2,
+  Cpu,
+  Loader2,
+  AlertCircle,
+  Download,
+  FileText,
+  AudioWaveform,
+} from "lucide-react";
 import {
   api,
   on,
@@ -8,13 +16,27 @@ import {
   type LanguageOption,
   type ModelDownloadEvent,
   type ModelLoadStatusEvent,
+  type Phoneme,
+  type PronStatusEvent,
   type Segment,
+  type SessionSummary,
   type TranscribeStatusEvent,
 } from "./api";
 import { AudioBar } from "./AudioBar";
 import { ModelManager } from "./ModelManager";
+import { PronunciationView } from "./PronunciationView";
+import { SessionsRail } from "./SessionsRail";
 import { Sidebar } from "./Sidebar";
 import { Transcript } from "./Transcript";
+
+type Tab = "transcribe" | "pronunciation";
+type PronStatus =
+  | "idle"
+  | "loading_model"
+  | "converting"
+  | "analyzing"
+  | "done"
+  | "error";
 
 type AppStatus =
   | { kind: "checking" }
@@ -41,6 +63,28 @@ export function App() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [currentLoadedId, setCurrentLoadedId] = useState<string | null>(null);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("transcribe");
+
+  // Pronunciation state — lifted here so it survives tab switches and so the
+  // pron_status "done" event isn't missed while the Pronunciation tab is hidden.
+  const [pronModelPresent, setPronModelPresent] = useState<boolean | null>(null);
+  const [pronDownloadBytes, setPronDownloadBytes] = useState<number | null>(null);
+  const [pronStatus, setPronStatus] =
+    useState<PronStatus>("idle");
+  const [pronPhonemes, setPronPhonemes] = useState<Phoneme[]>([]);
+  const [pronMeanConf, setPronMeanConf] = useState<number>(0);
+  const [pronError, setPronError] = useState<string | null>(null);
+  const [jobState, setJobState] = useState<{ busy: boolean; job: string | null }>({
+    busy: false,
+    job: null,
+  });
+
+  // Sessions (persistence)
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [hasUnsaved, setHasUnsaved] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
 
   // The AudioBar registers a seek fn we can call from the Transcript.
   const seekRef = useRef<((t: number) => void) | null>(null);
@@ -53,6 +97,10 @@ export function App() {
     setModels(list);
   }, []);
 
+  const refreshSessions = useCallback(async () => {
+    setSessions(await api.listSessions());
+  }, []);
+
   useEffect(() => {
     api.checkModel().then((r) => {
       setGpu(r.gpu);
@@ -63,7 +111,9 @@ export function App() {
     });
     api.getServerUrl().then(setServerUrl);
     api.getLanguages().then(setLanguages);
+    api.checkPronModel().then((r) => setPronModelPresent(r.present));
     void refreshModels();
+    void refreshSessions();
 
     const offDl = on("model_download", (p: ModelDownloadEvent) => {
       // Default-flow boot card only reacts to events for the active model.
@@ -88,27 +138,146 @@ export function App() {
       else if (p.status === "language_detected") setDetectedLanguage(p.language);
       else if (p.status === "done") {
         setStatus({ kind: "done", duration: p.duration });
+        setAudioDuration(p.duration);
+        setHasUnsaved(true);
         if (p.language) setDetectedLanguage(p.language);
         if (p.model_id) setCurrentLoadedId(p.model_id);
       }
       else if (p.status === "error") setStatus({ kind: "error", message: p.error });
     });
+
+    const offPronDl = on("pron_model_download", (p: ModelDownloadEvent) => {
+      if (p.status === "downloading") setPronDownloadBytes(p.bytes);
+      else if (p.status === "complete") {
+        setPronModelPresent(true);
+        setPronDownloadBytes(null);
+      } else if (p.status === "cancelled") {
+        setPronDownloadBytes(null);
+      } else if (p.status === "error") {
+        setPronDownloadBytes(null);
+        setPronError(p.error);
+      }
+    });
+    const offPron = on("pron_status", (p: PronStatusEvent) => {
+      if (p.status === "done") {
+        setPronPhonemes(p.phonemes);
+        setPronMeanConf(p.mean_confidence);
+        setPronStatus("done");
+        setHasUnsaved(true);
+      } else if (p.status === "error") {
+        setPronStatus("error");
+        setPronError(p.error);
+      } else {
+        setPronStatus(p.status); // loading_model | converting | analyzing
+      }
+    });
+    const offJob = on("job_state", (p: { busy: boolean; job: string | null }) => {
+      setJobState(p);
+    });
+
     return () => {
-      offDl(); offMl(); offSeg(); offTr();
+      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob();
     };
-  }, [refreshModels]);
+  }, [refreshModels, refreshSessions]);
 
   const startTranscribe = (path: string, url: string) => {
     setAudio({ path, url });
     setSegments([]);
     setCurrentTime(0);
     setDetectedLanguage(null);
+    // New audio invalidates any prior pronunciation analysis and the active session.
+    setPronPhonemes([]);
+    setPronStatus("idle");
+    setPronError(null);
+    setActiveSessionId(null);
+    setHasUnsaved(true);
     setStatus({ kind: "transcribing" });
     void api.transcribe(path, {
       temperature,
       model_id: activeModelId,
       language: activeLanguage,
     });
+  };
+
+  const handleAnalyzePronunciation = () => {
+    if (!audio) return;
+    setPronPhonemes([]);
+    setPronError(null);
+    setPronStatus("loading_model");
+    void api.assessPronunciation(audio.path);
+  };
+
+  const handleDownloadPronModel = () => {
+    setPronError(null);
+    void api.downloadPronModel();
+  };
+
+  const handleCancelPronDownload = () => {
+    void api.cancelPronDownload();
+  };
+
+  // ---- Sessions ----
+
+  const canSaveSession = !!audio && segments.length > 0;
+
+  const handleSaveSession = async () => {
+    if (!audio || segments.length === 0) return;
+    const pronunciation =
+      pronStatus === "done" && pronPhonemes.length > 0
+        ? { phonemes: pronPhonemes, mean_confidence: pronMeanConf }
+        : null;
+    const data = {
+      title: deriveTitle(segments),
+      audio_path: audio.path,
+      language: activeLanguage,
+      model_id: activeModelId,
+      duration: audioDuration || undefined,
+      segments,
+      pronunciation,
+    };
+    if (activeSessionId) {
+      await api.updateSession(activeSessionId, data);
+    } else {
+      const summary = await api.saveSession(data);
+      setActiveSessionId(summary.id);
+    }
+    setHasUnsaved(false);
+    void refreshSessions();
+  };
+
+  const handleLoadSession = async (id: string) => {
+    const sess = await api.loadSession(id);
+    if (!sess) return;
+    setActiveSessionId(sess.id);
+    setSegments(sess.segments);
+    setAudioDuration(sess.duration ?? 0);
+    setCurrentTime(0);
+    if (sess.audio_url) {
+      setAudio({ path: sess.audio_stored_path ?? "", url: sess.audio_url });
+    }
+    if (sess.pronunciation && sess.pronunciation.phonemes.length > 0) {
+      setPronPhonemes(sess.pronunciation.phonemes);
+      setPronMeanConf(sess.pronunciation.mean_confidence);
+      setPronStatus("done");
+    } else {
+      setPronPhonemes([]);
+      setPronStatus("idle");
+    }
+    if (sess.language) setActiveLanguage(sess.language);
+    if (sess.model_id) setActiveModelId(sess.model_id);
+    setStatus({ kind: "done", duration: sess.duration ?? 0 });
+    setHasUnsaved(false);
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    await api.deleteSession(id);
+    if (activeSessionId === id) setActiveSessionId(null);
+    void refreshSessions();
+  };
+
+  const handleRenameSession = async (id: string, title: string) => {
+    await api.renameSession(id, title);
+    void refreshSessions();
   };
 
   const handlePick = async () => {
@@ -189,12 +358,31 @@ export function App() {
           <span className="brand-name">SpeakToSpeech</span>
         </div>
         <div className="header-status">
+          {jobState.busy && jobState.job === "pronunciation" && (
+            <span className="badge badge-transcribing">
+              <Loader2 size={12} className="spin" />
+              <span>Analyzing</span>
+            </span>
+          )}
           <GpuBadge gpu={gpu} />
           <StatusBadge status={status} segments={segments.length} />
         </div>
       </header>
 
       <div className="app-body">
+        <SessionsRail
+          collapsed={railCollapsed}
+          onToggleCollapsed={() => setRailCollapsed((c) => !c)}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          hasUnsaved={hasUnsaved}
+          canSave={canSaveSession}
+          onSave={handleSaveSession}
+          onLoad={handleLoadSession}
+          onDelete={handleDeleteSession}
+          onRename={handleRenameSession}
+        />
+
         <Sidebar
           audioPath={audio?.path ?? null}
           serverUrl={serverUrl}
@@ -230,6 +418,23 @@ export function App() {
         )}
 
         <main className="main">
+          <div className="tab-bar">
+            <button
+              className={`tab ${tab === "transcribe" ? "active" : ""}`}
+              onClick={() => setTab("transcribe")}
+            >
+              <FileText size={14} />
+              <span>Transcribe</span>
+            </button>
+            <button
+              className={`tab ${tab === "pronunciation" ? "active" : ""}`}
+              onClick={() => setTab("pronunciation")}
+            >
+              <AudioWaveform size={14} />
+              <span>Pronunciation</span>
+            </button>
+          </div>
+
           <AudioBar
             url={audio?.url ?? null}
             segments={segments}
@@ -237,11 +442,29 @@ export function App() {
             onTimeChange={setCurrentTime}
             registerSeek={registerSeek}
           />
-          <Transcript
-            segments={segments}
-            currentTime={currentTime}
-            onSeek={handleSeek}
-          />
+
+          {tab === "transcribe" ? (
+            <Transcript
+              segments={segments}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+            />
+          ) : (
+            <PronunciationView
+              audioPath={audio?.path ?? null}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+              modelPresent={pronModelPresent}
+              downloadBytes={pronDownloadBytes}
+              status={pronStatus}
+              phonemes={pronPhonemes}
+              meanConfidence={pronMeanConf}
+              error={pronError}
+              onAnalyze={handleAnalyzePronunciation}
+              onDownload={handleDownloadPronModel}
+              onCancelDownload={handleCancelPronDownload}
+            />
+          )}
         </main>
       </div>
     </div>
@@ -299,4 +522,14 @@ function fmtBytes(b: number): string {
   if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} KB`;
   if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1)} MB`;
   return `${(b / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function deriveTitle(segments: Segment[]): string {
+  const text = segments
+    .map((s) => s.text.trim())
+    .join(" ")
+    .trim();
+  if (!text) return `Session ${new Date().toLocaleDateString()}`;
+  const words = text.split(/\s+/).slice(0, 6).join(" ");
+  return words.length > 48 ? words.slice(0, 48) + "…" : words;
 }

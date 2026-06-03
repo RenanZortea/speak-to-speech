@@ -40,6 +40,61 @@ export type CatalogModel = {
 
 export type LanguageOption = { code: string; name: string };
 
+export type Phoneme = {
+  symbol: string;
+  start: number;
+  end: number;
+  confidence: number;
+};
+
+export type PronModelCheck = {
+  model_id: string;
+  present: boolean;
+  loaded: boolean;
+};
+
+export type PronStatusEvent =
+  | { status: "loading_model" }
+  | { status: "converting" }
+  | { status: "analyzing" }
+  | { status: "done"; phonemes: Phoneme[]; mean_confidence: number; duration: number }
+  | { status: "error"; error: string };
+
+export type PronunciationResult = { phonemes: Phoneme[]; mean_confidence: number };
+
+export type SessionSummary = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  duration: number | null;
+  has_pronunciation: boolean;
+};
+
+export type FullSession = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  audio_stored_path: string | null;
+  audio_url: string | null;
+  language: string | null;
+  model_id: string | null;
+  duration: number | null;
+  segments: Segment[];
+  pronunciation: PronunciationResult | null;
+};
+
+export type SaveSessionData = {
+  title?: string;
+  audio_path: string;
+  language?: string;
+  model_id?: string;
+  duration?: number;
+  segments: Segment[];
+  pronunciation: PronunciationResult | null;
+};
+
 export type PickResult = { path: string; url: string } | null;
 
 export type ModelDownloadEvent =
@@ -136,6 +191,36 @@ export const api = {
   },
   async cancelDownload(modelId: string): Promise<{ cancelled: boolean; model_id: string }> {
     return (await ready()).cancel_download(modelId);
+  },
+  async checkPronModel(): Promise<PronModelCheck> {
+    return (await ready()).check_pron_model();
+  },
+  async downloadPronModel(): Promise<{ started: boolean; model_id: string }> {
+    return (await ready()).download_pron_model();
+  },
+  async cancelPronDownload(): Promise<{ cancelled: boolean }> {
+    return (await ready()).cancel_pron_download();
+  },
+  async assessPronunciation(audioPath: string): Promise<{ started: boolean }> {
+    return (await ready()).assess_pronunciation(audioPath);
+  },
+  async saveSession(data: SaveSessionData): Promise<SessionSummary> {
+    return (await ready()).save_session(data);
+  },
+  async updateSession(id: string, data: Partial<SaveSessionData>): Promise<FullSession | null> {
+    return (await ready()).update_session(id, data);
+  },
+  async listSessions(): Promise<SessionSummary[]> {
+    return (await ready()).list_sessions();
+  },
+  async loadSession(id: string): Promise<FullSession | null> {
+    return (await ready()).load_session(id);
+  },
+  async renameSession(id: string, title: string): Promise<{ ok: boolean }> {
+    return (await ready()).rename_session(id, title);
+  },
+  async deleteSession(id: string): Promise<{ ok: boolean }> {
+    return (await ready()).delete_session(id);
   },
   async getServerUrl(): Promise<string | null> {
     return (await ready()).get_server_url();

@@ -18,7 +18,10 @@ Thumbs.db
 # App data
 *.sqlite
 *.sqlite-journal
+*.db
 recordings/
+sessions/
+sessions.db
 
 # Build artifacts
 build/
