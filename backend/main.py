@@ -40,7 +40,14 @@ from model_manager import (
 from worker import WhisperWorker
 
 DEV_URL = "http://localhost:5173"
-PROD_INDEX = (Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html")
+
+# Resolve the production index:
+#   - Bundled (PyInstaller): under sys._MEIPASS/frontend/dist/
+#   - Dev: relative to this file at the project root.
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    PROD_INDEX = Path(sys._MEIPASS) / "frontend" / "dist" / "index.html"
+else:
+    PROD_INDEX = Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html"
 
 
 class Api:
@@ -226,10 +233,40 @@ def main():
     webview.start(debug=dev)
 
 
+def _setup_frozen_logging():
+    """In a windowed PyInstaller bundle there's no stdout/stderr. Redirect
+    them to a log file under %TEMP% so launch errors are recoverable."""
+    import tempfile
+    log_path = Path(tempfile.gettempdir()) / "SpeakToSpeech-launch.log"
+    try:
+        f = open(log_path, "w", encoding="utf-8", buffering=1)
+        sys.stdout = f
+        sys.stderr = f
+        print(f"SpeakToSpeech launching — log {log_path}")
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     # multiprocessing spawn (used by model_manager for cancellable downloads) will
     # re-import this module in the child process. freeze_support() is a no-op in
     # dev but is the canonical guard against the child re-running main().
     import multiprocessing
     multiprocessing.freeze_support()
-    main()
+
+    if getattr(sys, "frozen", False):
+        _setup_frozen_logging()
+        try:
+            main()
+        except SystemExit:
+            raise
+        except BaseException:
+            import traceback
+            traceback.print_exc()
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            raise
+    else:
+        main()

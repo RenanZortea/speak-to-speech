@@ -133,6 +133,32 @@ gives 5–10× the throughput. Set the env var before launching:
 $env:HF_TOKEN = "hf_yourtokenhere"
 ```
 
+## Building a portable bundle (for distribution)
+
+Produces a self-contained `dist/SpeakToSpeech/` folder + a portable ZIP. The
+bundle includes Python, faster-whisper, the CUDA runtime DLLs, pywebview, the
+built React frontend, and everything else needed to run — except the Whisper
+model, which is downloaded on first launch (so the installer stays ~600 MB
+instead of multiple GB).
+
+```powershell
+.\build.ps1
+```
+
+Options:
+- `-VenvPython "C:\path\to\python.exe"` — use a non-default venv
+- `-SkipFrontend` — reuse an existing `frontend/dist/`
+- `-SkipZip` — produce the folder bundle only, skip ZIP packaging
+- `-Clean` — wipe `build/` and `dist/` before building
+
+The end-to-end build runs the React production build, invokes PyInstaller via
+[`SpeakToSpeech.spec`](SpeakToSpeech.spec), and zips the result. First build
+takes 3–6 minutes; subsequent ones are faster (incremental analysis cache).
+
+To distribute, send users the resulting `dist/SpeakToSpeech-portable-<date>.zip`.
+They extract anywhere and double-click `SpeakToSpeech.exe`. WebView2 runtime is
+required (default on Windows 10/11 since 2021).
+
 ## Architecture (10-second tour)
 
 ```

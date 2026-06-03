@@ -19,3 +19,9 @@ Thumbs.db
 *.sqlite
 *.sqlite-journal
 recordings/
+
+# Build artifacts
+build/
+dist/
+*.spec.bak
+*.tsbuildinfo

@@ -19,15 +19,17 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-# Derive the nvidia DLL location from the active Python's venv. Works for any
-# venv layout: <venv>/Scripts/python.exe → <venv>/Lib/site-packages/nvidia/...
-# Override via WHISPER_NVIDIA_BASE env var if you have an unusual setup.
-_NVIDIA_BASE = Path(
-    os.environ.get(
-        "WHISPER_NVIDIA_BASE",
-        str(Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"),
-    )
-)
+# Derive the NVIDIA DLL location.
+#   - Bundled (PyInstaller): DLLs live under sys._MEIPASS/nvidia/* (placed there
+#     by the .spec file's `binaries=` directive).
+#   - Dev: derived from the active venv's site-packages.
+#   - Override via WHISPER_NVIDIA_BASE if your layout is unusual.
+if "WHISPER_NVIDIA_BASE" in os.environ:
+    _NVIDIA_BASE = Path(os.environ["WHISPER_NVIDIA_BASE"])
+elif getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    _NVIDIA_BASE = Path(sys._MEIPASS) / "nvidia"
+else:
+    _NVIDIA_BASE = Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"
 _DLL_DIRS = [_NVIDIA_BASE / "cublas" / "bin", _NVIDIA_BASE / "cudnn" / "bin"]
 
 # Keep handles alive at module level (some Python versions may treat the
