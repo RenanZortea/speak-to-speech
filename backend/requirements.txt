@@ -1,0 +1,5 @@
+pywebview>=5.0
+huggingface-hub>=0.24
+# faster-whisper, ctranslate2, and the nvidia-cu12 runtime wheels are installed
+# separately — see README.md for the exact pinned versions. Keeping them out of
+# this file lets users override versions for their CUDA setup without editing.
