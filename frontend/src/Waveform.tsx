@@ -54,12 +54,18 @@ export function Waveform({ url, segments, playbackRate, volume, onReady, onTime,
     const onSeeking = (time: number) => onTime(time);
     const onPlay = () => onPlayStateChange(true);
     const onPause = () => onPlayStateChange(false);
+    // `finish` fires when playback reaches the end — wavesurfer does NOT emit
+    // `pause` in that case, so without this the play/pause icon stays stuck on
+    // "pause" after a track ends.
+    const onFinish = () => onPlayStateChange(false);
 
     ws.on("ready", onReadyHandler);
     ws.on("audioprocess", onAudioProcess);
+    ws.on("timeupdate", onAudioProcess);
     ws.on("seeking", onSeeking);
     ws.on("play", onPlay);
     ws.on("pause", onPause);
+    ws.on("finish", onFinish);
 
     return () => {
       ws.destroy();

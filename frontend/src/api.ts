@@ -1,12 +1,20 @@
 // Thin wrapper over pywebview's JS bridge + a tiny event bus
 // for Python-pushed events (Python calls window.__emit(...) via evaluate_js).
 
+export type Word = {
+  start: number;
+  end: number;
+  word: string;
+  probability: number;
+};
+
 export type Segment = {
   start: number;
   end: number;
   text: string;
   avg_logprob: number;
   no_speech_prob: number;
+  words?: Word[]; // optional — sessions saved before word-timestamps lack it
 };
 
 export type GpuInfo = {
@@ -83,6 +91,43 @@ export type FullSession = {
   duration: number | null;
   segments: Segment[];
   pronunciation: PronunciationResult | null;
+};
+
+export type GpuStats = {
+  available: boolean;
+  name?: string;
+  gpu_util?: number;
+  vram_used?: number;
+  vram_total?: number;
+};
+
+export type ResourceStats = {
+  cpu_percent: number;
+  cpu_count: number;
+  ram_percent: number;
+  ram_used: number;
+  ram_total: number;
+  proc_ram: number;
+  gpu: GpuStats;
+};
+
+export type Settings = {
+  version: string;
+  cpu_threads: number;
+  cpu_count: number;
+  release_when_idle: boolean;
+  whisper_loaded: boolean;
+  pron_loaded: boolean;
+};
+
+export type UpdateInfo = {
+  update_available: boolean;
+  current_version: string;
+  latest_version?: string;
+  notes?: string;
+  html_url?: string;
+  download_url?: string;
+  error?: string;
 };
 
 export type SaveSessionData = {
@@ -221,6 +266,24 @@ export const api = {
   },
   async deleteSession(id: string): Promise<{ ok: boolean }> {
     return (await ready()).delete_session(id);
+  },
+  async getSettings(): Promise<Settings> {
+    return (await ready()).get_settings();
+  },
+  async setCpuThreads(n: number): Promise<{ cpu_threads: number }> {
+    return (await ready()).set_cpu_threads(n);
+  },
+  async setReleaseWhenIdle(enabled: boolean): Promise<{ release_when_idle: boolean }> {
+    return (await ready()).set_release_when_idle(enabled);
+  },
+  async unloadAllModels(): Promise<{ whisper_loaded: boolean; pron_loaded: boolean }> {
+    return (await ready()).unload_all_models();
+  },
+  async checkForUpdate(): Promise<UpdateInfo> {
+    return (await ready()).check_for_update();
+  },
+  async installUpdate(url: string): Promise<{ started: boolean }> {
+    return (await ready()).install_update(url);
   },
   async getServerUrl(): Promise<string | null> {
     return (await ready()).get_server_url();

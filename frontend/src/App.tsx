@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Cpu,
   Loader2,
   AlertCircle,
   Download,
-  FileText,
-  AudioWaveform,
 } from "lucide-react";
 import {
   api,
@@ -18,18 +16,22 @@ import {
   type ModelLoadStatusEvent,
   type Phoneme,
   type PronStatusEvent,
+  type ResourceStats,
   type Segment,
   type SessionSummary,
   type TranscribeStatusEvent,
+  type UpdateInfo,
 } from "./api";
+import { alignPhonemes } from "./alignment";
 import { AudioBar } from "./AudioBar";
 import { ModelManager } from "./ModelManager";
-import { PronunciationView } from "./PronunciationView";
+import { PronunciationBar } from "./PronunciationBar";
+import { ResourceFooter } from "./ResourceFooter";
 import { SessionsRail } from "./SessionsRail";
+import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
 import { Transcript } from "./Transcript";
 
-type Tab = "transcribe" | "pronunciation";
 type PronStatus =
   | "idle"
   | "loading_model"
@@ -63,7 +65,6 @@ export function App() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [currentLoadedId, setCurrentLoadedId] = useState<string | null>(null);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("transcribe");
 
   // Pronunciation state — lifted here so it survives tab switches and so the
   // pron_status "done" event isn't missed while the Pronunciation tab is hidden.
@@ -82,9 +83,18 @@ export function App() {
   // Sessions (persistence)
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(true);
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
+
+  // Resources
+  const [resourceStats, setResourceStats] = useState<ResourceStats | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Updates
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<{ bytes: number; total: number } | null>(null);
 
   // The AudioBar registers a seek fn we can call from the Transcript.
   const seekRef = useRef<((t: number) => void) | null>(null);
@@ -174,9 +184,24 @@ export function App() {
     const offJob = on("job_state", (p: { busy: boolean; job: string | null }) => {
       setJobState(p);
     });
+    const offRes = on("resource_stats", (s: ResourceStats) => {
+      setResourceStats(s);
+    });
+    const offUpd = on("update_download", (p: any) => {
+      if (p.status === "error" || p.status === "launching" || p.status === "manual") {
+        setUpdateProgress(null);
+      } else if (typeof p.bytes === "number") {
+        setUpdateProgress({ bytes: p.bytes, total: p.total ?? 0 });
+      }
+    });
+
+    // Check for updates on startup (non-blocking; ignores failures silently).
+    api.checkForUpdate().then((info) => {
+      if (info.update_available) setUpdateInfo(info);
+    });
 
     return () => {
-      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob();
+      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob(); offRes(); offUpd();
     };
   }, [refreshModels, refreshSessions]);
 
@@ -317,6 +342,12 @@ export function App() {
     seekRef.current?.(t);
   };
 
+  // Pair phonemes with words once both exist. Floating phonemes stay unassigned.
+  const alignment = useMemo(() => {
+    if (pronStatus !== "done" || pronPhonemes.length === 0) return null;
+    return alignPhonemes(segments, pronPhonemes);
+  }, [pronStatus, pronPhonemes, segments]);
+
   const busy =
     status.kind === "transcribing" ||
     status.kind === "loading_model" ||
@@ -418,23 +449,6 @@ export function App() {
         )}
 
         <main className="main">
-          <div className="tab-bar">
-            <button
-              className={`tab ${tab === "transcribe" ? "active" : ""}`}
-              onClick={() => setTab("transcribe")}
-            >
-              <FileText size={14} />
-              <span>Transcribe</span>
-            </button>
-            <button
-              className={`tab ${tab === "pronunciation" ? "active" : ""}`}
-              onClick={() => setTab("pronunciation")}
-            >
-              <AudioWaveform size={14} />
-              <span>Pronunciation</span>
-            </button>
-          </div>
-
           <AudioBar
             url={audio?.url ?? null}
             segments={segments}
@@ -443,30 +457,54 @@ export function App() {
             registerSeek={registerSeek}
           />
 
-          {tab === "transcribe" ? (
-            <Transcript
-              segments={segments}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-            />
-          ) : (
-            <PronunciationView
-              audioPath={audio?.path ?? null}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              modelPresent={pronModelPresent}
-              downloadBytes={pronDownloadBytes}
-              status={pronStatus}
-              phonemes={pronPhonemes}
-              meanConfidence={pronMeanConf}
-              error={pronError}
-              onAnalyze={handleAnalyzePronunciation}
-              onDownload={handleDownloadPronModel}
-              onCancelDownload={handleCancelPronDownload}
-            />
-          )}
+          <PronunciationBar
+            hasAudio={!!audio}
+            modelPresent={pronModelPresent}
+            downloadBytes={pronDownloadBytes}
+            status={pronStatus}
+            phonemes={pronPhonemes}
+            meanConfidence={pronMeanConf}
+            floatingCount={alignment?.floating.length ?? 0}
+            error={pronError}
+            onAnalyze={handleAnalyzePronunciation}
+            onDownload={handleDownloadPronModel}
+            onCancelDownload={handleCancelPronDownload}
+          />
+
+          <Transcript
+            segments={segments}
+            alignment={alignment}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+          />
         </main>
       </div>
+
+      <ResourceFooter
+        stats={resourceStats}
+        onOpenSettings={() => setSettingsOpen(true)}
+        updateAvailable={!!updateInfo?.update_available && !updateDismissed}
+        onUpdateClick={() => setSettingsOpen(true)}
+        onUpdateDismiss={() => setUpdateDismissed(true)}
+      />
+
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          updateInfo={updateInfo}
+          updateProgress={updateProgress}
+          onCheckUpdate={async () => {
+            const info = await api.checkForUpdate();
+            setUpdateInfo(info);
+            setUpdateDismissed(false);
+            return info;
+          }}
+          onInstall={(url) => {
+            setUpdateProgress({ bytes: 0, total: 0 });
+            void api.installUpdate(url);
+          }}
+        />
+      )}
     </div>
   );
 }

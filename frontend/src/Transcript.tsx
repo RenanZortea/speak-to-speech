@@ -1,22 +1,31 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { Segment } from "./api";
+import type { Phoneme, Segment } from "./api";
+import {
+  CATEGORY_HINTS,
+  CATEGORY_LABELS,
+  categoryColor,
+  type AlignedWord,
+  type Alignment,
+} from "./alignment";
 
 interface Props {
   segments: Segment[];
+  alignment: Alignment | null; // present once pronunciation has been analyzed
   currentTime: number;
   onSeek: (t: number) => void;
 }
 
-export function Transcript({ segments, currentTime, onSeek }: Props) {
-  const activeIdx = segments.findIndex(
+export function Transcript({ segments, alignment, currentTime, onSeek }: Props) {
+  const activeSegIdx = segments.findIndex(
     (s) => currentTime >= s.start && currentTime < s.end,
   );
   const activeRef = useRef<HTMLDivElement>(null);
+  const [openWordIdx, setOpenWordIdx] = useState<number | null>(null);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeIdx]);
+  }, [activeSegIdx]);
 
   if (segments.length === 0) {
     return (
@@ -26,29 +35,60 @@ export function Transcript({ segments, currentTime, onSeek }: Props) {
     );
   }
 
+  const pron = alignment;
+  // Running index into the flat aligned-words list, advanced as we render.
+  let wordCursor = 0;
+
   return (
     <div className="transcript">
+      {pron && openWordIdx !== null && (
+        <div className="word-popover-backdrop" onClick={() => setOpenWordIdx(null)} />
+      )}
+
       {segments.map((s, i) => {
-        const tier = confidenceTier(s.avg_logprob);
-        const isActive = i === activeIdx;
+        const isActive = i === activeSegIdx;
+        const words = s.words ?? [];
+        const usePron = pron !== null && words.length > 0;
+
         return (
           <div
             key={i}
             ref={isActive ? activeRef : null}
-            className={`segment conf-${tier} ${isActive ? "active" : ""}`}
-            onClick={() => onSeek(s.start)}
+            className={`segment ${isActive ? "active" : ""} ${
+              usePron ? "pron" : `conf-${confidenceTier(s.avg_logprob)}`
+            }`}
           >
-            <div className="seg-meta">
+            <div className="seg-meta" onClick={() => onSeek(s.start)}>
               <span className="seg-time">{fmtTime(s.start)}</span>
-              <span
-                className={`seg-conf-dot conf-${tier}`}
-                title={`avg_logprob: ${s.avg_logprob.toFixed(2)}\nno_speech_prob: ${s.no_speech_prob.toFixed(2)}`}
-              />
               {isActive && <ChevronRight size={12} className="seg-active-arrow" />}
             </div>
-            <div className="seg-text" dir="rtl">
-              {s.text}
-            </div>
+
+            {usePron ? (
+              <div className="seg-text pron-text" dir="rtl">
+                {words.map((w, wi) => {
+                  const idx = wordCursor++;
+                  const aw = pron!.words[idx];
+                  const wordActive = currentTime >= w.start && currentTime < w.end;
+                  return (
+                    <Word
+                      key={wi}
+                      aw={aw}
+                      text={w.word}
+                      active={wordActive}
+                      open={openWordIdx === idx}
+                      onClick={() => {
+                        onSeek(w.start);
+                        setOpenWordIdx((cur) => (cur === idx ? null : idx));
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="seg-text" dir="rtl" onClick={() => onSeek(s.start)}>
+                {s.text}
+              </div>
+            )}
           </div>
         );
       })}
@@ -56,13 +96,84 @@ export function Transcript({ segments, currentTime, onSeek }: Props) {
   );
 }
 
-/**
- * faster-whisper avg_logprob is roughly in (-1.0 .. 0). Closer to 0 = more confident.
- * Empirically, < -0.5 is where the model gets uncertain. < -1.0 is very iffy.
- */
+function Word({
+  aw,
+  text,
+  active,
+  open,
+  onClick,
+}: {
+  aw: AlignedWord | undefined;
+  text: string;
+  active: boolean;
+  open: boolean;
+  onClick: () => void;
+}) {
+  const color = aw ? categoryColor(aw.category) : "transparent";
+  return (
+    <span className="word-wrap">
+      <span
+        className={`word ${active ? "active" : ""}`}
+        style={{ borderBottomColor: color }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+      >
+        {text}
+      </span>
+      {open && aw && <WordPopover aw={aw} />}
+    </span>
+  );
+}
+
+function WordPopover({ aw }: { aw: AlignedWord }) {
+  return (
+    <div className="word-popover" dir="ltr" onClick={(e) => e.stopPropagation()}>
+      <div className="wp-head">
+        <span className="wp-cat" style={{ color: categoryColor(aw.category) }}>
+          {CATEGORY_LABELS[aw.category]}
+        </span>
+        <span className="wp-confs">
+          word {Math.round(aw.lexicalConf * 100)}%
+          {aw.acousticConf !== null && <> · sound {Math.round(aw.acousticConf * 100)}%</>}
+        </span>
+      </div>
+      <p className="wp-hint">{CATEGORY_HINTS[aw.category]}</p>
+      {aw.phonemes.length > 0 ? (
+        <div className="wp-phonemes">
+          {aw.phonemes.map((p, i) => (
+            <PhonemeChip key={i} p={p} />
+          ))}
+        </div>
+      ) : (
+        <p className="wp-empty">No aligned phonemes.</p>
+      )}
+    </div>
+  );
+}
+
+function PhonemeChip({ p }: { p: Phoneme }) {
+  return (
+    <span
+      className={`wp-ph conf-${phonTier(p.confidence)}`}
+      title={`${p.start.toFixed(2)}s · ${Math.round(p.confidence * 100)}%`}
+    >
+      <span className="wp-ph-sym">{p.symbol}</span>
+      <span className="wp-ph-conf">{Math.round(p.confidence * 100)}</span>
+    </span>
+  );
+}
+
 function confidenceTier(avgLogprob: number): "high" | "med" | "low" {
   if (avgLogprob >= -0.3) return "high";
   if (avgLogprob >= -0.6) return "med";
+  return "low";
+}
+
+function phonTier(c: number): "high" | "med" | "low" {
+  if (c >= 0.7) return "high";
+  if (c >= 0.4) return "med";
   return "low";
 }
 

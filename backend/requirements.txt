@@ -1,5 +1,10 @@
 pywebview>=5.0
 huggingface-hub>=0.24
+psutil>=5.9
+nvidia-ml-py>=12.0
 # faster-whisper, ctranslate2, and the nvidia-cu12 runtime wheels are installed
 # separately — see README.md for the exact pinned versions. Keeping them out of
 # this file lets users override versions for their CUDA setup without editing.
+#
+# Pronunciation analysis additionally needs (installed separately, see README):
+#   torch (CPU build), transformers, soundfile

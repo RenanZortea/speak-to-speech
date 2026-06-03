@@ -49,6 +49,7 @@ class PronunciationWorker(ModelHost):
         self._fe = None
         self._id_to_tok = None
         self._blank_id = 0
+        self.cpu_threads = None  # None → default (half cores); set by Api settings
 
     def _on_unload(self):
         self._fe = None
@@ -62,7 +63,8 @@ class PronunciationWorker(ModelHost):
             from huggingface_hub import hf_hub_download
             from transformers import AutoModelForCTC, Wav2Vec2FeatureExtractor
 
-            torch.set_num_threads(max(1, (os.cpu_count() or 4) // 2))
+            threads = self.cpu_threads or max(1, (os.cpu_count() or 4) // 2)
+            torch.set_num_threads(threads)
 
             self._fe = Wav2Vec2FeatureExtractor.from_pretrained(
                 PRON_MODEL_ID, local_files_only=True

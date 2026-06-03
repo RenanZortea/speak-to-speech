@@ -39,6 +39,7 @@ from model_manager import (
 )
 from orchestration import JobLane, ResourceManager
 from pronunciation import PRON_MODEL_ID, PronunciationWorker
+from resources import ResourceMonitor
 from session_store import SessionStore
 from worker import WhisperWorker
 
@@ -64,10 +65,15 @@ class Api:
         self._audio = AudioServer()
         self._audio.start()
         self._sessions = SessionStore()
+        self._monitor = ResourceMonitor(emit=lambda s: self._emit("resource_stats", s))
         self._window = None
         # Active selection — Hebrew by default. Persists across transcribes.
         self._active_model_id = DEFAULT_MODEL_ID
         self._active_language = DEFAULT_LANGUAGE
+        # Resource settings.
+        import os as _os
+        self._cpu_threads = max(1, (_os.cpu_count() or 4) // 2)
+        self._release_when_idle = False
 
     def _on_job_state(self, job_name):
         """JobLane state callback → single busy/idle signal to the UI."""
@@ -76,6 +82,7 @@ class Api:
     # Methods prefixed with `_` are not exposed to JS by pywebview.
     def _set_window(self, window):
         self._window = window
+        self._monitor.start()
 
     def _emit(self, event: str, payload):
         if self._window is None:
@@ -186,7 +193,9 @@ class Api:
 
         def run():
             ok = self._jobs.try_run("pronunciation", job)
-            if not ok:
+            if ok and self._release_when_idle:
+                self._pron.unload()
+            elif not ok:
                 self._emit("pron_status", {
                     "status": "error",
                     "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
@@ -223,6 +232,76 @@ class Api:
 
     def delete_session(self, session_id: str):
         return {"ok": self._sessions.delete_session(session_id)}
+
+    # ---- Resources / settings ----
+
+    def get_settings(self):
+        import os as _os
+        from version import __version__
+        return {
+            "version": __version__,
+            "cpu_threads": self._cpu_threads,
+            "cpu_count": _os.cpu_count() or 4,
+            "release_when_idle": self._release_when_idle,
+            "whisper_loaded": self._worker.is_loaded,
+            "pron_loaded": self._pron.is_loaded,
+        }
+
+    def set_cpu_threads(self, n: int):
+        import os as _os
+        n = max(1, min(int(n), _os.cpu_count() or 4))
+        self._cpu_threads = n
+        self._pron.cpu_threads = n
+        # Apply immediately if torch is already imported.
+        if "torch" in sys.modules:
+            try:
+                sys.modules["torch"].set_num_threads(n)
+            except Exception:
+                pass
+        return {"cpu_threads": n}
+
+    def set_release_when_idle(self, enabled: bool):
+        self._release_when_idle = bool(enabled)
+        return {"release_when_idle": self._release_when_idle}
+
+    def unload_all_models(self):
+        self._worker.unload()
+        self._pron.unload()
+        return {"whisper_loaded": self._worker.is_loaded, "pron_loaded": self._pron.is_loaded}
+
+    # ---- Updates ----
+
+    def check_for_update(self):
+        from updater import check_for_update
+        return check_for_update()
+
+    def install_update(self, url: str):
+        """Download the installer and launch it; the app then exits so files can
+        be replaced. Emits 'update_download' progress events."""
+        from updater import download_and_run_installer
+
+        def run():
+            res = download_and_run_installer(
+                url, on_progress=lambda p: self._emit("update_download", p)
+            )
+            if res.get("error"):
+                self._emit("update_download", {"status": "error", "error": res["error"]})
+            elif res.get("launched"):
+                self._emit("update_download", {"status": "launching"})
+                # Give the installer a moment to start, then close this app.
+                import time
+                time.sleep(1.5)
+                try:
+                    if self._window:
+                        self._window.destroy()
+                except Exception:
+                    pass
+                os._exit(0)
+            else:
+                self._emit("update_download", {"status": "manual", "path": res.get("path")})
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True}
         return {"started": True}
 
     def save_text(self, content: str, default_name: str = "transcript.txt"):
@@ -288,7 +367,9 @@ class Api:
 
         def run():
             ok = self._jobs.try_run("transcribe", job)
-            if not ok:
+            if ok and self._release_when_idle:
+                self._worker.unload()
+            elif not ok:
                 self._emit("transcribe_status", {
                     "status": "error",
                     "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",

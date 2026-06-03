@@ -1,26 +1,31 @@
-# build.ps1 — end-to-end portable build for SpeakToSpeech.
+# build.ps1 — end-to-end build for SpeakToSpeech.
 #
 # Steps:
 #   1. npm run build  → frontend/dist/
 #   2. PyInstaller    → dist/SpeakToSpeech/
-#   3. Compress       → dist/SpeakToSpeech-portable-<date>.zip
+#   3. Inno Setup     → dist/SpeakToSpeech-Setup-<version>.exe   (unless -SkipInstaller)
+#   4. Compress       → dist/SpeakToSpeech-portable-<date>.zip   (unless -SkipZip)
 #
 # Usage:
 #   .\build.ps1
 #   .\build.ps1 -VenvPython "C:\my-venv\Scripts\python.exe"
-#   .\build.ps1 -SkipFrontend   # if frontend/dist already built
-#   .\build.ps1 -SkipZip        # skip the final zip step
-#   .\build.ps1 -Clean          # nuke build/ and dist/ first
+#   .\build.ps1 -SkipFrontend    # if frontend/dist already built
+#   .\build.ps1 -SkipInstaller   # skip the Inno Setup installer
+#   .\build.ps1 -SkipZip         # skip the portable zip
+#   .\build.ps1 -Clean           # nuke build/ and dist/ first
 #
 # Requirements:
 #   - The Python venv used must have faster-whisper, ctranslate2, pywebview,
 #     huggingface_hub, nvidia-cublas-cu12, nvidia-cudnn-cu12 installed.
 #   - Node.js + npm on PATH.
 #   - PyInstaller is installed automatically on first run.
+#   - Inno Setup 6 (ISCC.exe) for the installer step (auto-detected; install via
+#     `winget install JRSoftware.InnoSetup`).
 
 param(
     [string]$VenvPython = "C:\whisper-he\Scripts\python.exe",
     [switch]$SkipFrontend,
+    [switch]$SkipInstaller,
     [switch]$SkipZip,
     [switch]$Clean
 )
@@ -88,7 +93,46 @@ try {
 
 Assert-Path $ExePath "Built EXE"
 
-# 3. Zip
+# Read the app version (single source of truth).
+$VersionFile = Join-Path $ProjectRoot "backend\version.py"
+$AppVersion = "0.0.0"
+if (Test-Path $VersionFile) {
+    $m = Select-String -Path $VersionFile -Pattern '__version__\s*=\s*"([^"]+)"'
+    if ($m) { $AppVersion = $m.Matches[0].Groups[1].Value }
+}
+Write-Host "  App version: $AppVersion" -ForegroundColor Gray
+
+# 3. Inno Setup installer
+if (-not $SkipInstaller) {
+    Write-Step 3 4 "Building installer (Inno Setup)..."
+    $iscc = $null
+    $isccCandidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        "C:\Program Files\Inno Setup 6\ISCC.exe"
+    )
+    foreach ($c in $isccCandidates) { if (Test-Path $c) { $iscc = $c; break } }
+    if (-not $iscc) {
+        $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+        if ($cmd) { $iscc = $cmd.Source }
+    }
+    if (-not $iscc) {
+        Write-Host "  Inno Setup (ISCC.exe) not found — skipping installer." -ForegroundColor Yellow
+        Write-Host "  Install via: winget install JRSoftware.InnoSetup" -ForegroundColor Yellow
+    } else {
+        & $iscc "/DMyAppVersion=$AppVersion" (Join-Path $ProjectRoot "installer.iss")
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+        $setupPath = Join-Path $DistDir "SpeakToSpeech-Setup-$AppVersion.exe"
+        if (Test-Path $setupPath) {
+            $sizeMB = [math]::Round((Get-Item $setupPath).Length / 1MB, 1)
+            Write-Host "  -> $setupPath  ($sizeMB MB)" -ForegroundColor Green
+        }
+    }
+} else {
+    Write-Step 3 4 "Skipping installer (-SkipInstaller)"
+}
+
+# 4. Zip
 if (-not $SkipZip) {
     Write-Step 4 4 "Creating portable ZIP..."
     $stamp = Get-Date -Format "yyyyMMdd"

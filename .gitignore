@@ -28,3 +28,6 @@ build/
 dist/
 *.spec.bak
 *.tsbuildinfo
+
+# Personal working notes
+ROADMAP.md

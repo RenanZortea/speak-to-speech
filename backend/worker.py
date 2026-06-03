@@ -128,6 +128,7 @@ class WhisperWorker(ModelHost):
                 temperature=float(temperature),
                 beam_size=5,
                 vad_filter=False,
+                word_timestamps=True,  # per-word [start,end,probability] for pron pairing
             )
             if on_status:
                 on_status({
@@ -135,12 +136,21 @@ class WhisperWorker(ModelHost):
                     "language": getattr(info, "language", None),
                 })
             for seg in segments:
+                words = []
+                for w in (getattr(seg, "words", None) or []):
+                    words.append({
+                        "start": float(w.start),
+                        "end": float(w.end),
+                        "word": w.word,
+                        "probability": float(getattr(w, "probability", 0.0) or 0.0),
+                    })
                 on_segment({
                     "start": float(seg.start),
                     "end": float(seg.end),
                     "text": seg.text,
                     "avg_logprob": float(getattr(seg, "avg_logprob", 0.0) or 0.0),
                     "no_speech_prob": float(getattr(seg, "no_speech_prob", 0.0) or 0.0),
+                    "words": words,
                 })
             on_done({
                 "duration": float(info.duration),
