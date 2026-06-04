@@ -24,13 +24,13 @@ import {
 } from "./api";
 import { alignPhonemes } from "./alignment";
 import { AudioBar } from "./AudioBar";
+import { CodeTranscript } from "./CodeTranscript";
 import { ModelManager } from "./ModelManager";
 import { PronunciationBar } from "./PronunciationBar";
 import { ResourceFooter } from "./ResourceFooter";
 import { SessionsRail } from "./SessionsRail";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
-import { Transcript } from "./Transcript";
 
 type PronStatus =
   | "idle"
@@ -471,7 +471,7 @@ export function App() {
             onCancelDownload={handleCancelPronDownload}
           />
 
-          <Transcript
+          <CodeTranscript
             segments={segments}
             alignment={alignment}
             currentTime={currentTime}
