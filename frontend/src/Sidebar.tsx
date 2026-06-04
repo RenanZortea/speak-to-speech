@@ -14,6 +14,7 @@ import {
   Cpu,
   Languages,
   Settings2,
+  Sparkles,
 } from "lucide-react";
 import { Recorder } from "./Recorder";
 import {
@@ -42,6 +43,7 @@ interface Props {
   onLanguageChange: (lang: string) => void;
   onModelChange: (modelId: string) => void;
   onOpenModelManager: () => void;
+  onOpenAiCorrect: () => void;
 }
 
 export function Sidebar({
@@ -62,6 +64,7 @@ export function Sidebar({
   onLanguageChange,
   onModelChange,
   onOpenModelManager,
+  onOpenAiCorrect,
 }: Props) {
   const [flash, setFlash] = useState<{ kind: "saved" | "copied"; detail: string } | null>(null);
 
@@ -186,6 +189,21 @@ export function Sidebar({
           <RotateCw size={15} />
           <span>Re-transcribe</span>
         </button>
+      </Section>
+
+      <Section title="Corrections" icon={<Sparkles size={14} />}>
+        <button
+          className="btn ghost"
+          onClick={onOpenAiCorrect}
+          disabled={segments.length === 0}
+          title="Generate a prompt for any AI, then paste its corrections back"
+        >
+          <Sparkles size={15} />
+          <span>Correct with AI…</span>
+        </button>
+        <p className="opt-hint">
+          Right-click any word to add a correction manually, or use any AI via copy-paste.
+        </p>
       </Section>
 
       <Section title="Export" icon={<Download size={14} />}>

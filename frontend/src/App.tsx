@@ -28,6 +28,7 @@ import { AudioBar } from "./AudioBar";
 import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
 import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
 import { CorrectionMenu, type MenuTarget } from "./CorrectionMenu";
+import { CorrectAiModal } from "./CorrectAiModal";
 import { ModelManager } from "./ModelManager";
 import { PronunciationBar } from "./PronunciationBar";
 import { ResourceFooter } from "./ResourceFooter";
@@ -99,6 +100,7 @@ export function App() {
   const [correctionView, setCorrectionView] = useState<CorrectionView>("corrected");
   const [ctxMenu, setCtxMenu] = useState<MenuTarget | null>(null);
   const [corrDialog, setCorrDialog] = useState<DialogTarget | null>(null);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   // Updates
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -393,6 +395,14 @@ export function App() {
     }
     setCorrDialog(null);
   };
+  const applyAiCorrections = (newCorrs: Correction[]) => {
+    if (newCorrs.length === 0) return;
+    setCorrections((cs) => [...cs, ...newCorrs]);
+    setHasUnsaved(true);
+  };
+
+  const activeLanguageName =
+    languages.find((l) => l.code === activeLanguage)?.name ?? activeLanguage;
 
   const busy =
     status.kind === "transcribing" ||
@@ -478,6 +488,7 @@ export function App() {
           onLanguageChange={handleLanguageChange}
           onModelChange={handleModelChange}
           onOpenModelManager={() => setModelManagerOpen(true)}
+          onOpenAiCorrect={() => setAiModalOpen(true)}
         />
 
         {modelManagerOpen && (
@@ -576,6 +587,15 @@ export function App() {
           onSave={saveCorrection}
           onDelete={deleteCorrectionFromDialog}
           onClose={() => setCorrDialog(null)}
+        />
+      )}
+
+      {aiModalOpen && (
+        <CorrectAiModal
+          segments={segments}
+          languageName={activeLanguageName}
+          onApply={applyAiCorrections}
+          onClose={() => setAiModalOpen(false)}
         />
       )}
 

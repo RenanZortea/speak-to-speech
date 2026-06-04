@@ -21,6 +21,7 @@ import {
   type Alignment,
 } from "./alignment";
 import { CATEGORY_COLOR, CATEGORY_LABEL, type Correction } from "./corrections";
+import { buildTranscriptDoc } from "./transcriptDoc";
 import type { MenuTarget } from "./CorrectionMenu";
 
 export type CorrectionView = "corrected" | "original";
@@ -107,27 +108,9 @@ class SuggestionWidget extends WidgetType {
 }
 
 function buildDoc(segments: Segment[], alignment: Alignment | null) {
-  let text = "";
-  const words: WordPos[] = [];
-  let alignIdx = 0;
-  segments.forEach((seg, si) => {
-    const segWords = seg.words ?? [];
-    if (segWords.length > 0) {
-      for (const w of segWords) {
-        const from = text.length;
-        const lead = w.word.length - w.word.trimStart().length;
-        text += w.word;
-        const to = text.length;
-        const aw = alignment?.words[alignIdx] ?? null;
-        words.push({ from, markFrom: from + lead, to, start: w.start, end: w.end, aw });
-        alignIdx++;
-      }
-    } else {
-      text += seg.text;
-    }
-    if (si < segments.length - 1) text += "\n";
-  });
-  return { text, words };
+  const { text, words } = buildTranscriptDoc(segments);
+  const wp: WordPos[] = words.map((w, i) => ({ ...w, aw: alignment?.words[i] ?? null }));
+  return { text, words: wp };
 }
 
 function baseDecorations(words: WordPos[]): DecorationSet {
