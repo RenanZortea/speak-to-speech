@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react";
-import { EditorState, StateEffect, StateField } from "@codemirror/state";
+import {
+  EditorState,
+  StateEffect,
+  StateField,
+  type StateEffectType,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
+  WidgetType,
   hoverTooltip,
   type DecorationSet,
 } from "@codemirror/view";
@@ -14,46 +20,49 @@ import {
   type AlignedWord,
   type Alignment,
 } from "./alignment";
+import { CATEGORY_COLOR, CATEGORY_LABEL, type Correction } from "./corrections";
+import type { MenuTarget } from "./CorrectionMenu";
+
+export type CorrectionView = "corrected" | "original";
 
 interface Props {
   segments: Segment[];
   alignment: Alignment | null;
+  corrections: Correction[];
+  view: CorrectionView;
   currentTime: number;
   onSeek: (t: number) => void;
+  onRequestContextMenu: (t: MenuTarget) => void;
 }
 
 type WordPos = {
-  from: number; // full span incl. leading space (for click hit-testing)
-  markFrom: number; // trimmed start (for the decoration underline)
+  from: number;
+  markFrom: number;
   to: number;
   start: number;
   end: number;
-  aw: AlignedWord | null; // pronunciation analysis for this word, if any
+  aw: AlignedWord | null;
 };
 
-// --- decoration state: a base layer (pronunciation colors) + an active layer ---
 const setBase = StateEffect.define<DecorationSet>();
 const setActive = StateEffect.define<DecorationSet>();
+const setCorr = StateEffect.define<DecorationSet>();
 
-const baseField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    deco = deco.map(tr.changes);
-    for (const e of tr.effects) if (e.is(setBase)) deco = e.value;
-    return deco;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
+function makeField(effectType: StateEffectType<DecorationSet>) {
+  return StateField.define<DecorationSet>({
+    create: () => Decoration.none,
+    update(deco, tr) {
+      deco = deco.map(tr.changes);
+      for (const e of tr.effects) if (e.is(effectType)) deco = e.value;
+      return deco;
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+}
 
-const activeField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    deco = deco.map(tr.changes);
-    for (const e of tr.effects) if (e.is(setActive)) deco = e.value;
-    return deco;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
+const baseField = makeField(setBase);
+const activeField = makeField(setActive);
+const corrField = makeField(setCorr);
 
 const editorTheme = EditorView.theme(
   {
@@ -72,14 +81,35 @@ const editorTheme = EditorView.theme(
   { dark: true },
 );
 
-function buildDoc(
-  segments: Segment[],
-  alignment: Alignment | null,
-): { text: string; words: WordPos[] } {
+// Replace decoration widget: shows the suggestion inline in place of the original.
+class SuggestionWidget extends WidgetType {
+  constructor(readonly corr: Correction) {
+    super();
+  }
+  eq(other: SuggestionWidget) {
+    return (
+      this.corr.id === other.corr.id &&
+      this.corr.suggestion === other.corr.suggestion &&
+      this.corr.category === other.corr.category
+    );
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-sug";
+    span.style.borderBottomColor = CATEGORY_COLOR[this.corr.category];
+    span.dir = "auto";
+    span.textContent = this.corr.suggestion;
+    return span;
+  }
+  ignoreEvent() {
+    return false; // let CM process clicks/contextmenu (seek, menu)
+  }
+}
+
+function buildDoc(segments: Segment[], alignment: Alignment | null) {
   let text = "";
   const words: WordPos[] = [];
   let alignIdx = 0;
-
   segments.forEach((seg, si) => {
     const segWords = seg.words ?? [];
     if (segWords.length > 0) {
@@ -89,14 +119,7 @@ function buildDoc(
         text += w.word;
         const to = text.length;
         const aw = alignment?.words[alignIdx] ?? null;
-        words.push({
-          from,
-          markFrom: from + lead,
-          to,
-          start: w.start,
-          end: w.end,
-          aw,
-        });
+        words.push({ from, markFrom: from + lead, to, start: w.start, end: w.end, aw });
         alignIdx++;
       }
     } else {
@@ -104,7 +127,6 @@ function buildDoc(
     }
     if (si < segments.length - 1) text += "\n";
   });
-
   return { text, words };
 }
 
@@ -112,11 +134,37 @@ function baseDecorations(words: WordPos[]): DecorationSet {
   const ranges = words
     .filter((w) => w.to > w.markFrom)
     .map((w) =>
-      Decoration.mark({ class: `cm-w cm-w-${w.aw?.category ?? "unknown"}` }).range(
-        w.markFrom,
-        w.to,
-      ),
+      Decoration.mark({ class: `cm-w cm-w-${w.aw?.category ?? "unknown"}` }).range(w.markFrom, w.to),
     );
+  return Decoration.set(ranges, true);
+}
+
+// Correction layer depends on the view: corrected = replace widgets; original = tint marks.
+function correctionDecorations(
+  corrections: Correction[],
+  view: CorrectionView,
+  docLen: number,
+): DecorationSet {
+  const valid = corrections
+    .filter((c) => c.to > c.from && c.to <= docLen)
+    .sort((a, b) => a.from - b.from);
+  // Drop overlaps (replace decorations can't overlap).
+  const nonOverlap: Correction[] = [];
+  let lastTo = -1;
+  for (const c of valid) {
+    if (c.from >= lastTo) {
+      nonOverlap.push(c);
+      lastTo = c.to;
+    }
+  }
+  const ranges = nonOverlap.map((c) =>
+    view === "corrected"
+      ? Decoration.replace({ widget: new SuggestionWidget(c) }).range(c.from, c.to)
+      : Decoration.mark({
+          class: "cm-corr",
+          attributes: { style: `background-color:${CATEGORY_COLOR[c.category]}22` },
+        }).range(c.from, c.to),
+  );
   return Decoration.set(ranges, true);
 }
 
@@ -126,12 +174,10 @@ function phonTier(c: number): "high" | "med" | "low" {
   return "low";
 }
 
-// Build the hover popover DOM for a word's pronunciation analysis.
-function renderTip(aw: AlignedWord): HTMLElement {
+function renderPronTip(aw: AlignedWord): HTMLElement {
   const root = document.createElement("div");
   root.className = "cm-pron-tip";
   root.dir = "ltr";
-
   const head = document.createElement("div");
   head.className = "cm-tip-head";
   const cat = document.createElement("span");
@@ -144,13 +190,10 @@ function renderTip(aw: AlignedWord): HTMLElement {
     `word ${Math.round(aw.lexicalConf * 100)}%` +
     (aw.acousticConf !== null ? ` · sound ${Math.round(aw.acousticConf * 100)}%` : "");
   head.append(cat, confs);
-
   const hint = document.createElement("p");
   hint.className = "cm-tip-hint";
   hint.textContent = CATEGORY_HINTS[aw.category];
-
   root.append(head, hint);
-
   if (aw.phonemes.length > 0) {
     const strip = document.createElement("div");
     strip.className = "cm-tip-phonemes";
@@ -171,86 +214,198 @@ function renderTip(aw: AlignedWord): HTMLElement {
   return root;
 }
 
-export function CodeTranscript({ segments, alignment, currentTime, onSeek }: Props) {
+function renderCorrTip(c: Correction, view: CorrectionView): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "cm-corr-tip";
+  root.dir = "ltr";
+  const head = document.createElement("div");
+  head.className = "cm-tip-head";
+  const cat = document.createElement("span");
+  cat.className = "cm-tip-cat";
+  cat.style.color = CATEGORY_COLOR[c.category];
+  cat.textContent = CATEGORY_LABEL[c.category];
+  head.append(cat);
+  root.append(head);
+
+  const line = document.createElement("div");
+  line.className = "cm-corr-tip-line";
+  if (view === "corrected") {
+    const lbl = document.createElement("span");
+    lbl.className = "cm-corr-tip-lbl";
+    lbl.textContent = "you said";
+    const s = document.createElement("s");
+    s.className = "cm-corr-strike";
+    s.dir = "auto";
+    s.textContent = c.original;
+    line.append(lbl, s);
+  } else {
+    const lbl = document.createElement("span");
+    lbl.className = "cm-corr-tip-lbl";
+    lbl.textContent = "correction";
+    const sug = document.createElement("span");
+    sug.className = "cm-corr-sug";
+    sug.dir = "auto";
+    sug.textContent = c.suggestion;
+    line.append(lbl, sug);
+  }
+  root.append(line);
+
+  if (c.explanation) {
+    const note = document.createElement("p");
+    note.className = "cm-corr-tip-note";
+    note.textContent = c.explanation;
+    root.append(note);
+  }
+  return root;
+}
+
+export function CodeTranscript({
+  segments,
+  alignment,
+  corrections,
+  view,
+  currentTime,
+  onSeek,
+  onRequestContextMenu,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const wordsRef = useRef<WordPos[]>([]);
+  const correctionsRef = useRef<Correction[]>(corrections);
+  const modeRef = useRef<CorrectionView>(view);
   const onSeekRef = useRef(onSeek);
+  const onCtxRef = useRef(onRequestContextMenu);
   const activeIdxRef = useRef<number>(-1);
 
   onSeekRef.current = onSeek;
+  onCtxRef.current = onRequestContextMenu;
+  correctionsRef.current = corrections;
+  modeRef.current = view;
 
-  // Create the editor once.
   useEffect(() => {
     if (!hostRef.current) return;
 
-    const pronTooltip = hoverTooltip(
-      (_view, pos) => {
+    const tip = hoverTooltip(
+      (_v, pos) => {
+        const c = correctionsRef.current.find((c) => pos >= c.from && pos <= c.to);
+        if (c) {
+          return {
+            pos: c.from,
+            end: c.to,
+            above: true,
+            create: () => ({ dom: renderCorrTip(c, modeRef.current) }),
+          };
+        }
         const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
-        if (!w || !w.aw || w.aw.phonemes.length === 0) return null;
-        const aw = w.aw;
-        return {
-          pos: w.markFrom,
-          end: w.to,
-          above: true,
-          create: () => ({ dom: renderTip(aw) }),
-        };
+        if (w && w.aw && w.aw.phonemes.length > 0) {
+          const aw = w.aw;
+          return { pos: w.markFrom, end: w.to, above: true, create: () => ({ dom: renderPronTip(aw) }) };
+        }
+        return null;
       },
       { hoverTime: 200 },
     );
 
-    const view = new EditorView({
+    const cmView = new EditorView({
       state: EditorState.create({
         doc: "",
         extensions: [
           baseField,
+          corrField,
           activeField,
-          pronTooltip,
+          tip,
           editorTheme,
           EditorView.editable.of(false),
           EditorState.readOnly.of(true),
           EditorView.contentAttributes.of({ dir: "rtl", lang: "he" }),
           EditorView.domEventHandlers({
             mousedown: (e, v) => {
+              if (e.button !== 0) return false;
               const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
               if (pos == null) return false;
               const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
               if (w) onSeekRef.current(w.start);
               return false;
             },
+            contextmenu: (e, v) => {
+              e.preventDefault();
+              const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+              if (pos == null) return true;
+
+              const corrAt = correctionsRef.current.find((c) => pos >= c.from && pos <= c.to);
+              let from: number, to: number, original: string, existingId: string | null;
+              if (corrAt) {
+                from = corrAt.from;
+                to = corrAt.to;
+                original = corrAt.original;
+                existingId = corrAt.id;
+              } else {
+                const sel = v.state.selection.main;
+                if (!sel.empty && pos >= sel.from && pos <= sel.to) {
+                  from = sel.from;
+                  to = sel.to;
+                } else {
+                  const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
+                  if (!w) return true;
+                  from = w.markFrom;
+                  to = w.to;
+                }
+                original = v.state.doc.sliceString(from, to).trim();
+                existingId = null;
+              }
+              const wf = wordsRef.current.find((w) => from >= w.from && from <= w.to);
+              onCtxRef.current({
+                x: e.clientX,
+                y: e.clientY,
+                from,
+                to,
+                original,
+                existingId,
+                time: wf ? wf.start : null,
+              });
+              return true;
+            },
           }),
         ],
       }),
       parent: hostRef.current,
     });
-    viewRef.current = view;
+    viewRef.current = cmView;
     return () => {
-      view.destroy();
+      cmView.destroy();
       viewRef.current = null;
     };
   }, []);
 
-  // Rebuild document + base decorations when the transcript or alignment changes.
+  // Rebuild document + base decorations on transcript/alignment change.
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
+    const v = viewRef.current;
+    if (!v) return;
     const { text, words } = buildDoc(segments, alignment);
     wordsRef.current = words;
     activeIdxRef.current = -1;
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: text },
-      effects: setBase.of(baseDecorations(words)),
+    v.dispatch({
+      changes: { from: 0, to: v.state.doc.length, insert: text },
+      effects: [setBase.of(baseDecorations(words))],
     });
+    v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
   }, [segments, alignment]);
 
-  // Update the active-word highlight as playback advances; scroll on change only.
+  // Rebuild correction decorations when corrections or the view toggle change.
   useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
+    const v = viewRef.current;
+    if (!v) return;
+    v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
+  }, [corrections, view]);
+
+  // Active-word highlight synced to playback.
+  useEffect(() => {
+    const v = viewRef.current;
+    if (!v) return;
     const words = wordsRef.current;
     const idx = words.findIndex((w) => currentTime >= w.start && currentTime < w.end);
     const w = idx >= 0 ? words[idx] : null;
-    view.dispatch({
+    v.dispatch({
       effects: setActive.of(
         w
           ? Decoration.set([Decoration.mark({ class: "cm-active-word" }).range(w.markFrom, w.to)])
@@ -259,7 +414,7 @@ export function CodeTranscript({ segments, alignment, currentTime, onSeek }: Pro
     });
     if (idx !== activeIdxRef.current && w) {
       activeIdxRef.current = idx;
-      view.dispatch({ effects: EditorView.scrollIntoView(w.from, { y: "nearest" }) });
+      v.dispatch({ effects: EditorView.scrollIntoView(w.from, { y: "nearest" }) });
     }
   }, [currentTime]);
 

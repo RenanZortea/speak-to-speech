@@ -1,6 +1,8 @@
 // Thin wrapper over pywebview's JS bridge + a tiny event bus
 // for Python-pushed events (Python calls window.__emit(...) via evaluate_js).
 
+import type { Correction } from "./corrections";
+
 export type Word = {
   start: number;
   end: number;
@@ -91,6 +93,7 @@ export type FullSession = {
   duration: number | null;
   segments: Segment[];
   pronunciation: PronunciationResult | null;
+  corrections?: Correction[];
 };
 
 export type GpuStats = {
@@ -138,6 +141,7 @@ export type SaveSessionData = {
   duration?: number;
   segments: Segment[];
   pronunciation: PronunciationResult | null;
+  corrections?: Correction[];
 };
 
 export type PickResult = { path: string; url: string } | null;

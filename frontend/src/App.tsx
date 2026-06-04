@@ -23,8 +23,11 @@ import {
   type UpdateInfo,
 } from "./api";
 import { alignPhonemes } from "./alignment";
+import { type Correction, newCorrectionId } from "./corrections";
 import { AudioBar } from "./AudioBar";
-import { CodeTranscript } from "./CodeTranscript";
+import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
+import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
+import { CorrectionMenu, type MenuTarget } from "./CorrectionMenu";
 import { ModelManager } from "./ModelManager";
 import { PronunciationBar } from "./PronunciationBar";
 import { ResourceFooter } from "./ResourceFooter";
@@ -90,6 +93,12 @@ export function App() {
   // Resources
   const [resourceStats, setResourceStats] = useState<ResourceStats | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Corrections (manual)
+  const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [correctionView, setCorrectionView] = useState<CorrectionView>("corrected");
+  const [ctxMenu, setCtxMenu] = useState<MenuTarget | null>(null);
+  const [corrDialog, setCorrDialog] = useState<DialogTarget | null>(null);
 
   // Updates
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -210,10 +219,11 @@ export function App() {
     setSegments([]);
     setCurrentTime(0);
     setDetectedLanguage(null);
-    // New audio invalidates any prior pronunciation analysis and the active session.
+    // New audio invalidates any prior pronunciation analysis, corrections, session.
     setPronPhonemes([]);
     setPronStatus("idle");
     setPronError(null);
+    setCorrections([]);
     setActiveSessionId(null);
     setHasUnsaved(true);
     setStatus({ kind: "transcribing" });
@@ -259,6 +269,7 @@ export function App() {
       duration: audioDuration || undefined,
       segments,
       pronunciation,
+      corrections,
     };
     if (activeSessionId) {
       await api.updateSession(activeSessionId, data);
@@ -288,6 +299,7 @@ export function App() {
       setPronPhonemes([]);
       setPronStatus("idle");
     }
+    setCorrections(sess.corrections ?? []);
     if (sess.language) setActiveLanguage(sess.language);
     if (sess.model_id) setActiveModelId(sess.model_id);
     setStatus({ kind: "done", duration: sess.duration ?? 0 });
@@ -347,6 +359,40 @@ export function App() {
     if (pronStatus !== "done" || pronPhonemes.length === 0) return null;
     return alignPhonemes(segments, pronPhonemes);
   }, [pronStatus, pronPhonemes, segments]);
+
+  // ---- Corrections ----
+  const handleRequestContextMenu = (t: MenuTarget) => setCtxMenu(t);
+  const saveCorrection = (data: {
+    suggestion: string;
+    category: Correction["category"];
+    explanation: string;
+  }) => {
+    if (!corrDialog) return;
+    if (corrDialog.existing) {
+      const id = corrDialog.existing.id;
+      setCorrections((cs) => cs.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    } else {
+      const c: Correction = {
+        id: newCorrectionId(),
+        from: corrDialog.from,
+        to: corrDialog.to,
+        original: corrDialog.original,
+        source: "manual",
+        ...data,
+      };
+      setCorrections((cs) => [...cs, c]);
+    }
+    setHasUnsaved(true);
+    setCorrDialog(null);
+  };
+  const deleteCorrectionFromDialog = () => {
+    if (corrDialog?.existing) {
+      const id = corrDialog.existing.id;
+      setCorrections((cs) => cs.filter((c) => c.id !== id));
+      setHasUnsaved(true);
+    }
+    setCorrDialog(null);
+  };
 
   const busy =
     status.kind === "transcribing" ||
@@ -466,6 +512,9 @@ export function App() {
             meanConfidence={pronMeanConf}
             floatingCount={alignment?.floating.length ?? 0}
             error={pronError}
+            hasCorrections={corrections.length > 0}
+            correctionView={correctionView}
+            onCorrectionViewChange={setCorrectionView}
             onAnalyze={handleAnalyzePronunciation}
             onDownload={handleDownloadPronModel}
             onCancelDownload={handleCancelPronDownload}
@@ -474,8 +523,11 @@ export function App() {
           <CodeTranscript
             segments={segments}
             alignment={alignment}
+            corrections={corrections}
+            view={correctionView}
             currentTime={currentTime}
             onSeek={handleSeek}
+            onRequestContextMenu={handleRequestContextMenu}
           />
         </main>
       </div>
@@ -487,6 +539,45 @@ export function App() {
         onUpdateClick={() => setSettingsOpen(true)}
         onUpdateDismiss={() => setUpdateDismissed(true)}
       />
+
+      {ctxMenu && (
+        <CorrectionMenu
+          target={ctxMenu}
+          onAdd={() => {
+            setCorrDialog({
+              from: ctxMenu.from,
+              to: ctxMenu.to,
+              original: ctxMenu.original,
+              existing: null,
+            });
+            setCtxMenu(null);
+          }}
+          onEdit={() => {
+            const c = corrections.find((c) => c.id === ctxMenu.existingId);
+            if (c) setCorrDialog({ from: c.from, to: c.to, original: c.original, existing: c });
+            setCtxMenu(null);
+          }}
+          onDelete={() => {
+            setCorrections((cs) => cs.filter((c) => c.id !== ctxMenu.existingId));
+            setHasUnsaved(true);
+            setCtxMenu(null);
+          }}
+          onPlay={() => {
+            if (ctxMenu.time !== null) handleSeek(ctxMenu.time);
+            setCtxMenu(null);
+          }}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {corrDialog && (
+        <CorrectionDialog
+          target={corrDialog}
+          onSave={saveCorrection}
+          onDelete={deleteCorrectionFromDialog}
+          onClose={() => setCorrDialog(null)}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsModal

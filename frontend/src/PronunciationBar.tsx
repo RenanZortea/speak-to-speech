@@ -11,6 +11,7 @@ import {
   categoryColor,
   type Category,
 } from "./alignment";
+import type { CorrectionView } from "./CodeTranscript";
 
 type PronStatus =
   | "idle"
@@ -29,6 +30,9 @@ interface Props {
   meanConfidence: number;
   floatingCount: number;
   error: string | null;
+  hasCorrections: boolean;
+  correctionView: CorrectionView;
+  onCorrectionViewChange: (v: CorrectionView) => void;
   onAnalyze: () => void;
   onDownload: () => void;
   onCancelDownload: () => void;
@@ -46,6 +50,9 @@ export function PronunciationBar({
   meanConfidence,
   floatingCount,
   error,
+  hasCorrections,
+  correctionView,
+  onCorrectionViewChange,
   onAnalyze,
   onDownload,
   onCancelDownload,
@@ -55,6 +62,23 @@ export function PronunciationBar({
   const analyzing =
     status === "loading_model" || status === "converting" || status === "analyzing";
   const hasResult = status === "done" && phonemes.length > 0;
+
+  const toggleEl = hasCorrections ? (
+    <div className="corr-toggle">
+      <button
+        className={correctionView === "corrected" ? "active" : ""}
+        onClick={() => onCorrectionViewChange("corrected")}
+      >
+        Corrected
+      </button>
+      <button
+        className={correctionView === "original" ? "active" : ""}
+        onClick={() => onCorrectionViewChange("original")}
+      >
+        Original
+      </button>
+    </div>
+  ) : null;
 
   // Downloading the model
   if (downloadBytes !== null) {
@@ -93,6 +117,7 @@ export function PronunciationBar({
             <AlertCircle size={13} /> {error}
           </span>
         )}
+        {toggleEl}
       </div>
     );
   }
@@ -146,6 +171,8 @@ export function PronunciationBar({
           </div>
         </>
       )}
+
+      {toggleEl}
     </div>
   );
 }

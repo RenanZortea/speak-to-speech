@@ -58,10 +58,15 @@ class SessionStore:
                     model_id            TEXT,
                     duration            REAL,
                     segments_json       TEXT NOT NULL,
-                    pronunciation_json  TEXT
+                    pronunciation_json  TEXT,
+                    corrections_json    TEXT
                 )
                 """
             )
+            # Migrate older DBs that predate the corrections column.
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+            if "corrections_json" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN corrections_json TEXT")
 
     # ---- public API ----
 
@@ -89,6 +94,8 @@ class SessionStore:
         segments_json = json.dumps(data.get("segments") or [], ensure_ascii=False)
         pron = data.get("pronunciation")
         pron_json = json.dumps(pron, ensure_ascii=False) if pron else None
+        corr = data.get("corrections")
+        corr_json = json.dumps(corr, ensure_ascii=False) if corr else None
 
         with self._lock, self._connect() as conn:
             conn.execute(
@@ -96,13 +103,13 @@ class SessionStore:
                 INSERT INTO sessions
                   (id, title, created_at, updated_at, audio_stored_path,
                    original_audio_path, language, model_id, duration,
-                   segments_json, pronunciation_json)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                   segments_json, pronunciation_json, corrections_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     sid, title, now, now, stored_path, src,
                     data.get("language"), data.get("model_id"),
-                    data.get("duration"), segments_json, pron_json,
+                    data.get("duration"), segments_json, pron_json, corr_json,
                 ),
             )
         return self._summary_row({
@@ -117,6 +124,8 @@ class SessionStore:
         segments_json = json.dumps(data.get("segments") or [], ensure_ascii=False)
         pron = data.get("pronunciation")
         pron_json = json.dumps(pron, ensure_ascii=False) if pron else None
+        corr = data.get("corrections")
+        corr_json = json.dumps(corr, ensure_ascii=False) if corr else None
         with self._lock, self._connect() as conn:
             cur = conn.execute(
                 """
@@ -125,10 +134,11 @@ class SessionStore:
                        updated_at = ?,
                        segments_json = ?,
                        pronunciation_json = ?,
+                       corrections_json = ?,
                        duration = COALESCE(?, duration)
                  WHERE id = ?
                 """,
-                (data.get("title"), now, segments_json, pron_json,
+                (data.get("title"), now, segments_json, pron_json, corr_json,
                  data.get("duration"), sid),
             )
             if cur.rowcount == 0:
@@ -160,6 +170,7 @@ class SessionStore:
             "duration": r["duration"],
             "segments": json.loads(r["segments_json"]) if r["segments_json"] else [],
             "pronunciation": json.loads(r["pronunciation_json"]) if r["pronunciation_json"] else None,
+            "corrections": json.loads(r["corrections_json"]) if r.get("corrections_json") else [],
         }
 
     def rename_session(self, sid: str, title: str) -> bool:
