@@ -32,6 +32,8 @@ body {
   color: var(--fg);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  /* Pin LTR base so the English UI renders correctly under an RTL OS locale. */
+  direction: ltr;
 }
 code { font-family: var(--font-mono); font-size: 0.9em; }
 

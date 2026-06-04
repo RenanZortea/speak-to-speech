@@ -171,7 +171,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="docs/icon.ico",  # add when we have one
+    icon="docs/icon.ico",
 )
 
 coll = COLLECT(

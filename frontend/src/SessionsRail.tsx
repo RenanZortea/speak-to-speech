@@ -116,7 +116,7 @@ export function SessionsRail({
                 <div className="rail-item-main">
                   <span className="rail-item-title" title={s.title}>
                     {s.has_pronunciation ? <Mic2 size={12} /> : <FileAudio size={12} />}
-                    {s.title}
+                    <bdi dir="auto">{s.title}</bdi>
                   </span>
                   <span className="rail-item-meta">
                     {fmtDate(s.updated_at)}

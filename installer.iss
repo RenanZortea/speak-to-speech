@@ -32,6 +32,8 @@ OutputBaseFilename=SpeakToSpeech-Setup-{#MyAppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; Icon for the Setup.exe itself and the wizard.
+SetupIconFile=docs\icon.ico
 ; Required so updates can replace files while the app is (briefly) running.
 CloseApplications=yes
 RestartApplications=no
