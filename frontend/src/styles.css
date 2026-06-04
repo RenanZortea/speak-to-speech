@@ -683,6 +683,13 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .btn.record { background: var(--rec); border-color: var(--rec); color: white; }
 .btn.record:hover:not(:disabled) { background: #e96a60; border-color: #e96a60; }
 .btn.record-stop { background: #2a2e3a; border-color: var(--border); color: var(--fg); }
+.btn.record-cancel {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg-faint);
+  padding: 8px 10px;
+}
+.btn.record-cancel:hover { color: var(--bad); border-color: rgba(226, 85, 74, 0.4); }
 
 /* =========================
    Options

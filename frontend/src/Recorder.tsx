@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, Square, Loader2, X } from "lucide-react";
+import { Mic, Square, Loader2, X, Trash2 } from "lucide-react";
 
 interface Props {
   serverUrl: string | null;
@@ -21,6 +21,7 @@ export function Recorder({ serverUrl, disabled, onRecordingReady }: Props) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const cancellingRef = useRef(false);
 
   useEffect(() => {
     if (state.kind !== "recording") return;
@@ -48,14 +49,23 @@ export function Recorder({ serverUrl, disabled, onRecordingReady }: Props) {
       const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.current = mr;
       chunksRef.current = [];
+      cancellingRef.current = false;
 
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       mr.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
+        if (cancellingRef.current) {
+          // Discarded recording — drop the audio, don't upload/transcribe.
+          chunksRef.current = [];
+          cancellingRef.current = false;
+          setState({ kind: "idle" });
+          setElapsed(0);
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
         await upload(blob, mr.mimeType);
       };
       mr.onerror = (e) => {
@@ -74,6 +84,11 @@ export function Recorder({ serverUrl, disabled, onRecordingReady }: Props) {
   };
 
   const stop = () => recorderRef.current?.stop();
+
+  const cancel = () => {
+    cancellingRef.current = true;
+    recorderRef.current?.stop(); // onstop sees the flag and discards
+  };
 
   const upload = async (blob: Blob, mime: string) => {
     setState({ kind: "uploading" });
@@ -127,6 +142,9 @@ export function Recorder({ serverUrl, disabled, onRecordingReady }: Props) {
         <button onClick={stop} className="btn record-stop">
           <Square size={14} fill="currentColor" />
           <span>Stop</span>
+        </button>
+        <button onClick={cancel} className="btn record-cancel" title="Discard this recording">
+          <Trash2 size={14} />
         </button>
         <span className="rec-time">
           <span className="rec-pulse" />
