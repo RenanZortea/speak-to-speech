@@ -23,7 +23,8 @@ import {
   type LanguageOption,
   type Segment,
 } from "./api";
-import { format, defaultFilename, toTxtPlain, type ExportFormat } from "./formats";
+import { format, defaultFilename, toTxtPlain, correctedText, type ExportFormat } from "./formats";
+import type { Correction } from "./corrections";
 
 interface Props {
   audioPath: string | null;
@@ -31,6 +32,7 @@ interface Props {
   busy: boolean;
   temperature: number;
   segments: Segment[];
+  corrections: Correction[];
   models: CatalogModel[];
   languages: LanguageOption[];
   activeModelId: string;
@@ -52,6 +54,7 @@ export function Sidebar({
   busy,
   temperature,
   segments,
+  corrections,
   models,
   languages,
   activeModelId,
@@ -80,24 +83,31 @@ export function Sidebar({
     if (saved) showFlash("saved", saved);
   };
 
-  const handleCopy = async () => {
-    const content = toTxtPlain(segments);
+  const copyToClipboard = async (content: string, detail: string) => {
     try {
       await navigator.clipboard.writeText(content);
-      showFlash("copied", `${segments.length} segments`);
     } catch {
-      // Fallback for environments without async clipboard API
       const ta = document.createElement("textarea");
       ta.value = content;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
       document.body.removeChild(ta);
-      showFlash("copied", `${segments.length} segments`);
     }
+    showFlash("copied", detail);
+  };
+
+  const handleCopy = () => copyToClipboard(toTxtPlain(segments), `${segments.length} segments`);
+  const handleCopyCorrected = () =>
+    copyToClipboard(correctedText(segments, corrections), `corrected · ${corrections.length} fixes`);
+  const handleSaveCorrected = async () => {
+    const name = defaultFilename(audioPath, "txt").replace(/\.txt$/, "-corrected.txt");
+    const saved = await api.saveText(correctedText(segments, corrections), name);
+    if (saved) showFlash("saved", saved);
   };
 
   const canExport = segments.length > 0;
+  const hasCorrections = corrections.length > 0;
 
   return (
     <aside className="sidebar">
@@ -254,6 +264,25 @@ export function Sidebar({
           <Copy size={15} />
           <span>Copy transcription</span>
         </button>
+        {hasCorrections && (
+          <div className="corrected-export">
+            <button
+              className="btn primary copy-btn"
+              onClick={handleCopyCorrected}
+              title="Copy the corrected version (all corrections applied)"
+            >
+              <Sparkles size={15} />
+              <span>Copy corrected</span>
+            </button>
+            <button
+              className="btn ghost corrected-save"
+              onClick={handleSaveCorrected}
+              title="Save the corrected version as .txt"
+            >
+              <FileText size={14} />
+            </button>
+          </div>
+        )}
         {flash && (
           <div className="saved-flash" title={flash.detail}>
             <Check size={12} />

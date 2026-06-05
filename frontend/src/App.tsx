@@ -476,6 +476,7 @@ export function App() {
           busy={busy}
           temperature={temperature}
           segments={segments}
+          corrections={corrections}
           models={models}
           languages={languages}
           activeModelId={activeModelId}

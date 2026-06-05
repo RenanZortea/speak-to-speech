@@ -615,6 +615,17 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   width: 100%;
 }
 
+.corrected-export {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.corrected-export .copy-btn { margin-top: 0; flex: 1; }
+.corrected-save {
+  flex-shrink: 0;
+  padding: 8px 10px !important;
+}
+
 .saved-flash {
   display: flex;
   align-items: center;

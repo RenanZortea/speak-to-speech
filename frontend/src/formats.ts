@@ -1,6 +1,18 @@
 import type { Segment } from "./api";
+import { applyCorrections, type Correction } from "./corrections";
+import { buildTranscriptDoc } from "./transcriptDoc";
 
 export type ExportFormat = "txt" | "txt-plain" | "srt" | "json";
+
+/** The corrected transcript: base doc text with all corrections applied.
+ *  Anchored to the same offsets the corrections use (buildTranscriptDoc). */
+export function correctedText(segments: Segment[], corrections: Correction[]): string {
+  const { text } = buildTranscriptDoc(segments);
+  return applyCorrections(text, corrections)
+    .split("\n")
+    .map((l) => l.trim())
+    .join("\n");
+}
 
 export function format(segments: Segment[], audioPath: string | null, fmt: ExportFormat): string {
   switch (fmt) {
