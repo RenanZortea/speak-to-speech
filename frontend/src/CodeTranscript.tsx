@@ -20,7 +20,12 @@ import {
   type AlignedWord,
   type Alignment,
 } from "./alignment";
-import { CATEGORY_COLOR, CATEGORY_LABEL, type Correction } from "./corrections";
+import {
+  CATEGORY_COLOR,
+  CATEGORY_LABEL,
+  correctedSentenceAt,
+  type Correction,
+} from "./corrections";
 import { buildTranscriptDoc } from "./transcriptDoc";
 import type { MenuTarget } from "./CorrectionMenu";
 
@@ -31,6 +36,7 @@ interface Props {
   alignment: Alignment | null;
   corrections: Correction[];
   view: CorrectionView;
+  seekInCorrected: boolean;
   currentTime: number;
   onSeek: (t: number) => void;
   onRequestContextMenu: (t: MenuTarget) => void;
@@ -113,7 +119,10 @@ function buildDoc(segments: Segment[], alignment: Alignment | null) {
   return { text, words: wp };
 }
 
-function baseDecorations(words: WordPos[]): DecorationSet {
+// Pronunciation coloring belongs to the original speech; suppress it whenever the
+// corrected overlay is actually showing (corrected view *and* corrections exist).
+function baseDecorations(words: WordPos[], enabled: boolean): DecorationSet {
+  if (!enabled) return Decoration.none;
   const ranges = words
     .filter((w) => w.to > w.markFrom)
     .map((w) =>
@@ -149,6 +158,12 @@ function correctionDecorations(
         }).range(c.from, c.to),
   );
   return Decoration.set(ranges, true);
+}
+
+// The corrected overlay only differs from the original when there's something to
+// correct; with no corrections the two views are identical, so pronunciation stays on.
+function pronOn(view: CorrectionView, hasCorrections: boolean): boolean {
+  return view === "original" || !hasCorrections;
 }
 
 function phonTier(c: number): "high" | "med" | "low" {
@@ -197,7 +212,11 @@ function renderPronTip(aw: AlignedWord): HTMLElement {
   return root;
 }
 
-function renderCorrTip(c: Correction, view: CorrectionView): HTMLElement {
+function renderCorrTip(
+  c: Correction,
+  view: CorrectionView,
+  correctedSentence: string,
+): HTMLElement {
   const root = document.createElement("div");
   root.className = "cm-corr-tip";
   root.dir = "ltr";
@@ -239,7 +258,34 @@ function renderCorrTip(c: Correction, view: CorrectionView): HTMLElement {
     note.textContent = c.explanation;
     root.append(note);
   }
+
+  const actions = document.createElement("div");
+  actions.className = "cm-tip-actions";
+  if (c.suggestion) actions.append(copyButton("Copy word", c.suggestion));
+  if (correctedSentence) actions.append(copyButton("Copy sentence", correctedSentence));
+  if (actions.childElementCount > 0) root.append(actions);
   return root;
+}
+
+// A clipboard button for use inside a hover tooltip. preventDefault on mousedown
+// keeps the tooltip alive (and stops the editor from treating it as a seek click).
+function copyButton(label: string, text: string): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "cm-tip-copy";
+  btn.textContent = label;
+  btn.addEventListener("mousedown", (e) => e.preventDefault());
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void navigator.clipboard.writeText(text);
+    btn.textContent = "Copied ✓";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = label;
+      btn.classList.remove("copied");
+    }, 1200);
+  });
+  return btn;
 }
 
 export function CodeTranscript({
@@ -247,6 +293,7 @@ export function CodeTranscript({
   alignment,
   corrections,
   view,
+  seekInCorrected,
   currentTime,
   onSeek,
   onRequestContextMenu,
@@ -256,6 +303,7 @@ export function CodeTranscript({
   const wordsRef = useRef<WordPos[]>([]);
   const correctionsRef = useRef<Correction[]>(corrections);
   const modeRef = useRef<CorrectionView>(view);
+  const seekInCorrectedRef = useRef(seekInCorrected);
   const onSeekRef = useRef(onSeek);
   const onCtxRef = useRef(onRequestContextMenu);
   const activeIdxRef = useRef<number>(-1);
@@ -264,21 +312,31 @@ export function CodeTranscript({
   onCtxRef.current = onRequestContextMenu;
   correctionsRef.current = corrections;
   modeRef.current = view;
+  seekInCorrectedRef.current = seekInCorrected;
 
   useEffect(() => {
     if (!hostRef.current) return;
 
     const tip = hoverTooltip(
-      (_v, pos) => {
+      (v, pos) => {
         const c = correctionsRef.current.find((c) => pos >= c.from && pos <= c.to);
         if (c) {
+          const sentence = correctedSentenceAt(
+            v.state.doc.toString(),
+            correctionsRef.current,
+            c.from,
+            c.to,
+          );
           return {
             pos: c.from,
             end: c.to,
             above: true,
-            create: () => ({ dom: renderCorrTip(c, modeRef.current) }),
+            create: () => ({ dom: renderCorrTip(c, modeRef.current, sentence) }),
           };
         }
+        // Pronunciation/phoneme tips are acoustic analysis of the original speech —
+        // meaningless on corrected text, so hidden while the corrected overlay shows.
+        if (!pronOn(modeRef.current, correctionsRef.current.length > 0)) return null;
         const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
         if (w && w.aw && w.aw.phonemes.length > 0) {
           const aw = w.aw;
@@ -304,6 +362,11 @@ export function CodeTranscript({
           EditorView.domEventHandlers({
             mousedown: (e, v) => {
               if (e.button !== 0) return false;
+              if (
+                !pronOn(modeRef.current, correctionsRef.current.length > 0) &&
+                !seekInCorrectedRef.current
+              )
+                return false;
               const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
               if (pos == null) return false;
               const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
@@ -369,22 +432,33 @@ export function CodeTranscript({
     activeIdxRef.current = -1;
     v.dispatch({
       changes: { from: 0, to: v.state.doc.length, insert: text },
-      effects: [setBase.of(baseDecorations(words))],
+      effects: [setBase.of(baseDecorations(words, pronOn(view, corrections.length > 0)))],
     });
     v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
   }, [segments, alignment]);
 
-  // Rebuild correction decorations when corrections or the view toggle change.
+  // Rebuild correction + pronunciation layers when corrections or the view toggle change.
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
-    v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
+    v.dispatch({
+      effects: [
+        setBase.of(baseDecorations(wordsRef.current, pronOn(view, corrections.length > 0))),
+        setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)),
+      ],
+    });
   }, [corrections, view]);
 
-  // Active-word highlight synced to playback.
+  // Active-word highlight synced to playback (original view only — on corrected
+  // text the base-offset marks land inside replaced spans and render wrong).
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
+    if (!pronOn(view, corrections.length > 0)) {
+      v.dispatch({ effects: setActive.of(Decoration.none) });
+      activeIdxRef.current = -1;
+      return;
+    }
     const words = wordsRef.current;
     const idx = words.findIndex((w) => currentTime >= w.start && currentTime < w.end);
     const w = idx >= 0 ? words[idx] : null;
@@ -399,7 +473,7 @@ export function CodeTranscript({
       activeIdxRef.current = idx;
       v.dispatch({ effects: EditorView.scrollIntoView(w.from, { y: "nearest" }) });
     }
-  }, [currentTime]);
+  }, [currentTime, view, corrections]);
 
   return (
     <div className="code-transcript">

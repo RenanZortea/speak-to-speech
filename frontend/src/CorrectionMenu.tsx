@@ -1,4 +1,4 @@
-import { Pencil, Plus, Trash2, Play } from "lucide-react";
+import { Pencil, Plus, Trash2, Play, Copy } from "lucide-react";
 
 export type MenuTarget = {
   x: number;
@@ -15,11 +15,13 @@ interface Props {
   onAdd: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCopy: () => void;
+  onCopyWord: () => void;
   onPlay: () => void;
   onClose: () => void;
 }
 
-export function CorrectionMenu({ target, onAdd, onEdit, onDelete, onPlay, onClose }: Props) {
+export function CorrectionMenu({ target, onAdd, onEdit, onDelete, onCopy, onCopyWord, onPlay, onClose }: Props) {
   const hasExisting = target.existingId !== null;
   return (
     <>
@@ -29,6 +31,12 @@ export function CorrectionMenu({ target, onAdd, onEdit, onDelete, onPlay, onClos
           <>
             <button className="ctx-item" onClick={onEdit}>
               <Pencil size={13} /> <span>Edit correction</span>
+            </button>
+            <button className="ctx-item" onClick={onCopyWord}>
+              <Copy size={13} /> <span>Copy corrected word</span>
+            </button>
+            <button className="ctx-item" onClick={onCopy}>
+              <Copy size={13} /> <span>Copy corrected sentence</span>
             </button>
             <button className="ctx-item danger" onClick={onDelete}>
               <Trash2 size={13} /> <span>Delete correction</span>

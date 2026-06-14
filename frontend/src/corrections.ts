@@ -66,3 +66,25 @@ export function applyCorrections(base: string, corrections: Correction[]): strin
   }
   return out;
 }
+
+const SENTENCE_BREAK = /[.?!…\n׃]/;
+
+/** The single sentence in `base` containing the span [from,to], with every
+ *  correction that falls inside that sentence applied. Used for the per-correction
+ *  "copy corrected sentence" action. */
+export function correctedSentenceAt(
+  base: string,
+  corrections: Correction[],
+  from: number,
+  to: number,
+): string {
+  let sFrom = from;
+  while (sFrom > 0 && !SENTENCE_BREAK.test(base[sFrom - 1])) sFrom--;
+  let sTo = to;
+  while (sTo < base.length && !SENTENCE_BREAK.test(base[sTo])) sTo++;
+  if (sTo < base.length) sTo++; // include the terminating punctuation
+  const within = corrections
+    .filter((c) => c.from >= sFrom && c.to <= sTo)
+    .map((c) => ({ ...c, from: c.from - sFrom, to: c.to - sFrom }));
+  return applyCorrections(base.slice(sFrom, sTo), within).trim();
+}

@@ -1359,6 +1359,24 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 }
 .cm-corr-sug { font-family: var(--font-he); font-size: 15px; color: var(--ok); }
 .cm-corr-tip-note { margin: 7px 0 0; font-size: 11.5px; color: var(--fg-dim); line-height: 1.45; }
+.cm-tip-actions { display: flex; gap: 6px; margin-top: 9px; }
+.cm-tip-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cm-tip-copy:hover { border-color: var(--accent); }
+.cm-tip-copy.copied { color: var(--ok); border-color: var(--ok); }
 
 /* Right-click context menu */
 .ctx-backdrop { position: fixed; inset: 0; z-index: 90; }

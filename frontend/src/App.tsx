@@ -23,7 +23,8 @@ import {
   type UpdateInfo,
 } from "./api";
 import { alignPhonemes } from "./alignment";
-import { type Correction, newCorrectionId } from "./corrections";
+import { type Correction, correctedSentenceAt, newCorrectionId } from "./corrections";
+import { buildTranscriptDoc } from "./transcriptDoc";
 import { AudioBar } from "./AudioBar";
 import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
 import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
@@ -98,6 +99,9 @@ export function App() {
   // Corrections (manual)
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [correctionView, setCorrectionView] = useState<CorrectionView>("corrected");
+  const [seekInCorrected, setSeekInCorrected] = useState<boolean>(
+    () => localStorage.getItem("seekInCorrected") !== "false",
+  );
   const [ctxMenu, setCtxMenu] = useState<MenuTarget | null>(null);
   const [corrDialog, setCorrDialog] = useState<DialogTarget | null>(null);
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -537,6 +541,7 @@ export function App() {
             alignment={alignment}
             corrections={corrections}
             view={correctionView}
+            seekInCorrected={seekInCorrected}
             currentTime={currentTime}
             onSeek={handleSeek}
             onRequestContextMenu={handleRequestContextMenu}
@@ -574,6 +579,17 @@ export function App() {
             setHasUnsaved(true);
             setCtxMenu(null);
           }}
+          onCopyWord={() => {
+            const c = corrections.find((c) => c.id === ctxMenu.existingId);
+            if (c) void navigator.clipboard.writeText(c.suggestion);
+            setCtxMenu(null);
+          }}
+          onCopy={() => {
+            const { text } = buildTranscriptDoc(segments);
+            const sentence = correctedSentenceAt(text, corrections, ctxMenu.from, ctxMenu.to);
+            void navigator.clipboard.writeText(sentence);
+            setCtxMenu(null);
+          }}
           onPlay={() => {
             if (ctxMenu.time !== null) handleSeek(ctxMenu.time);
             setCtxMenu(null);
@@ -603,6 +619,11 @@ export function App() {
       {settingsOpen && (
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
+          seekInCorrected={seekInCorrected}
+          onSeekInCorrectedChange={(v) => {
+            setSeekInCorrected(v);
+            localStorage.setItem("seekInCorrected", String(v));
+          }}
           updateInfo={updateInfo}
           updateProgress={updateProgress}
           onCheckUpdate={async () => {

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { X, Cpu, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink } from "lucide-react";
+import { X, Cpu, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink, MousePointerClick } from "lucide-react";
 import { api, type Settings, type UpdateInfo } from "./api";
 
 interface Props {
   onClose: () => void;
+  seekInCorrected: boolean;
+  onSeekInCorrectedChange: (v: boolean) => void;
   updateInfo: UpdateInfo | null;
   updateProgress: { bytes: number; total: number } | null;
   onCheckUpdate: () => Promise<UpdateInfo>;
@@ -12,6 +14,8 @@ interface Props {
 
 export function SettingsModal({
   onClose,
+  seekInCorrected,
+  onSeekInCorrectedChange,
   updateInfo,
   updateProgress,
   onCheckUpdate,
@@ -112,6 +116,24 @@ export function SettingsModal({
               <p className="settings-hint">
                 Unload a model from memory after each job finishes. Frees RAM/VRAM when
                 you're not actively working — at the cost of a ~10s reload next time.
+              </p>
+            </section>
+
+            <section className="settings-row">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={seekInCorrected}
+                  onChange={(e) => onSeekInCorrectedChange(e.target.checked)}
+                />
+                <span className="settings-label">
+                  <MousePointerClick size={14} /> Click to seek in Corrected view
+                </span>
+              </label>
+              <p className="settings-hint">
+                In Corrected view, click a word to jump the audio there. Pronunciation
+                coloring and the playback highlight are always hidden in Corrected view —
+                they only apply to your original speech.
               </p>
             </section>
 
