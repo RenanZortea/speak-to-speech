@@ -63,17 +63,24 @@ class PronunciationWorker(ModelHost):
             from huggingface_hub import hf_hub_download
             from transformers import AutoModelForCTC, Wav2Vec2FeatureExtractor
 
+            from app_settings import get_models_dir
+
+            cache_dir = str(get_models_dir())
             threads = self.cpu_threads or max(1, (os.cpu_count() or 4) // 2)
             torch.set_num_threads(threads)
 
             self._fe = Wav2Vec2FeatureExtractor.from_pretrained(
-                PRON_MODEL_ID, local_files_only=True
+                PRON_MODEL_ID, local_files_only=True, cache_dir=cache_dir
             )
-            model = AutoModelForCTC.from_pretrained(PRON_MODEL_ID, local_files_only=True)
+            model = AutoModelForCTC.from_pretrained(
+                PRON_MODEL_ID, local_files_only=True, cache_dir=cache_dir
+            )
             model.eval()
             self._model = model
 
-            vocab_path = hf_hub_download(PRON_MODEL_ID, "vocab.json", local_files_only=True)
+            vocab_path = hf_hub_download(
+                PRON_MODEL_ID, "vocab.json", local_files_only=True, cache_dir=cache_dir
+            )
             with open(vocab_path, encoding="utf-8") as f:
                 vocab = json.load(f)  # phoneme -> id
             self._id_to_tok = {v: k for k, v in vocab.items()}

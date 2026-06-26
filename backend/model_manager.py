@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from app_settings import get_models_dir
+
 DEFAULT_MODEL_ID = "ivrit-ai/whisper-large-v3-ct2"
 DEFAULT_LANGUAGE = "he"
 
@@ -111,9 +113,14 @@ LANGUAGES: list[tuple[str, str]] = [
 
 # ----- HF cache helpers -----
 
+def _hub_dir() -> Path:
+    """The Hugging Face hub cache dir models live in (user-configurable)."""
+    return get_models_dir()
+
+
 def _cache_dir(model_id: str) -> Path:
     name = "models--" + model_id.replace("/", "--")
-    return Path.home() / ".cache" / "huggingface" / "hub" / name
+    return _hub_dir() / name
 
 
 def _dir_size(p: Path) -> int:
@@ -136,7 +143,7 @@ def is_model_present(model_id: str) -> bool:
     threshold = max(50_000_000, expected // 2)
     try:
         from huggingface_hub import scan_cache_dir
-        info = scan_cache_dir()
+        info = scan_cache_dir(cache_dir=_hub_dir())
         for repo in info.repos:
             if repo.repo_id == model_id and repo.size_on_disk > threshold:
                 return True
@@ -148,7 +155,7 @@ def is_model_present(model_id: str) -> bool:
 def model_size_on_disk(model_id: str) -> int:
     try:
         from huggingface_hub import scan_cache_dir
-        info = scan_cache_dir()
+        info = scan_cache_dir(cache_dir=_hub_dir())
         for repo in info.repos:
             if repo.repo_id == model_id:
                 return repo.size_on_disk
@@ -174,7 +181,7 @@ def delete_model(model_id: str) -> bool:
     removed = False
     try:
         from huggingface_hub import scan_cache_dir
-        info = scan_cache_dir()
+        info = scan_cache_dir(cache_dir=_hub_dir())
         for repo in info.repos:
             if repo.repo_id == model_id:
                 shutil.rmtree(repo.repo_path, ignore_errors=True)
@@ -207,12 +214,12 @@ _active_downloads: dict[str, "mp.Process"] = {}
 _cancelled_ids: set[str] = set()
 
 
-def _hf_download_worker(model_id: str):
-    """Child-process entry point. Just runs snapshot_download.
+def _hf_download_worker(model_id: str, cache_dir: str):
+    """Child-process entry point. Just runs snapshot_download into cache_dir.
     Parent terminate() kills this process; HF cache state on disk is preserved."""
     try:
         from huggingface_hub import snapshot_download
-        snapshot_download(repo_id=model_id)
+        snapshot_download(repo_id=model_id, cache_dir=cache_dir)
     except KeyboardInterrupt:
         pass
 
@@ -227,6 +234,7 @@ def download_model(model_id: str, on_progress: Callable[[dict], None]):
         {"model_id": str, "status": "cancelled", "bytes": int}
         {"model_id": str, "status": "error",     "error": str}
     """
+    hub_dir = _hub_dir()
     cache_dir = _cache_dir(model_id)
     ctx = mp.get_context("spawn")
 
@@ -236,7 +244,9 @@ def download_model(model_id: str, on_progress: Callable[[dict], None]):
             on_progress({"model_id": model_id, "status": "error", "error": "already downloading"})
             return
         _cancelled_ids.discard(model_id)
-        proc = ctx.Process(target=_hf_download_worker, args=(model_id,), daemon=True)
+        proc = ctx.Process(
+            target=_hf_download_worker, args=(model_id, str(hub_dir)), daemon=True
+        )
         _active_downloads[model_id] = proc
 
     try:

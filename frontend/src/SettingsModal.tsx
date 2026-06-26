@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Cpu, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink, MousePointerClick } from "lucide-react";
+import { X, Cpu, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink, MousePointerClick, FolderOpen } from "lucide-react";
 import { api, type Settings, type UpdateInfo } from "./api";
 
 interface Props {
@@ -23,6 +23,7 @@ export function SettingsModal({
 }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [unloading, setUnloading] = useState(false);
+  const [choosingDir, setChoosingDir] = useState(false);
   const [checking, setChecking] = useState(false);
   const [localUpdate, setLocalUpdate] = useState<UpdateInfo | null>(updateInfo);
 
@@ -58,6 +59,22 @@ export function SettingsModal({
     const r = await api.unloadAllModels();
     setSettings((s) => (s ? { ...s, ...r } : s));
     setUnloading(false);
+  };
+
+  const handleChooseDir = async () => {
+    setChoosingDir(true);
+    const r = await api.chooseModelsDir();
+    if (r?.changed) {
+      setSettings((s) => (s ? { ...s, models_dir: r.models_dir, models_dir_custom: true } : s));
+    }
+    setChoosingDir(false);
+  };
+
+  const handleResetDir = async () => {
+    setChoosingDir(true);
+    const r = await api.resetModelsDir();
+    setSettings((s) => (s ? { ...s, models_dir: r.models_dir, models_dir_custom: false } : s));
+    setChoosingDir(false);
   };
 
   const anyLoaded = settings?.whisper_loaded || settings?.pron_loaded;
@@ -134,6 +151,40 @@ export function SettingsModal({
                 In Corrected view, click a word to jump the audio there. Pronunciation
                 coloring and the playback highlight are always hidden in Corrected view —
                 they only apply to your original speech.
+              </p>
+            </section>
+
+            <section className="settings-row">
+              <div className="settings-row-head">
+                <span className="settings-label">
+                  <FolderOpen size={14} /> Model storage
+                </span>
+                {settings.models_dir_custom && (
+                  <button
+                    className="btn-link"
+                    onClick={handleResetDir}
+                    disabled={choosingDir}
+                  >
+                    Reset to default
+                  </button>
+                )}
+              </div>
+              <div className="settings-path" title={settings.models_dir}>
+                {settings.models_dir}
+              </div>
+              <button
+                className="btn ghost settings-choose-dir"
+                onClick={handleChooseDir}
+                disabled={choosingDir}
+              >
+                {choosingDir ? <Loader2 size={14} className="spin" /> : <FolderOpen size={14} />}
+                <span>Change folder…</span>
+              </button>
+              <p className="settings-hint">
+                Where downloaded models (Whisper + pronunciation) are stored. New
+                downloads and model loads use this folder immediately; models already
+                downloaded elsewhere stay where they are — re-download them here if you
+                want everything in one place.
               </p>
             </section>
 

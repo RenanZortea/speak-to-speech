@@ -23,6 +23,12 @@ import sys
 import threading
 from pathlib import Path
 
+import app_settings
+# Point the Hugging Face hub cache at the user-chosen models dir before any HF
+# import reads it. Explicit cache_dir/download_root args (below) handle runtime
+# changes; this env var just covers any default-cache code path we don't pass.
+os.environ["HF_HUB_CACHE"] = str(app_settings.get_models_dir())
+
 import webview
 
 from audio_server import AudioServer
@@ -245,7 +251,29 @@ class Api:
             "release_when_idle": self._release_when_idle,
             "whisper_loaded": self._worker.is_loaded,
             "pron_loaded": self._pron.is_loaded,
+            "models_dir": str(app_settings.get_models_dir()),
+            "models_dir_custom": app_settings.is_models_dir_custom(),
         }
+
+    def choose_models_dir(self):
+        """Open a native folder picker and persist the chosen models dir.
+        Returns {"models_dir": str, "changed": bool}. New downloads and model
+        loads use it immediately; models already downloaded elsewhere stay put."""
+        if not self._window:
+            return None
+        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if not result:
+            return {"models_dir": str(app_settings.get_models_dir()), "changed": False}
+        path = result if isinstance(result, str) else result[0]
+        new = app_settings.set_models_dir(path)
+        os.environ["HF_HUB_CACHE"] = str(new)
+        return {"models_dir": str(new), "changed": True}
+
+    def reset_models_dir(self):
+        """Reset the models dir back to the Hugging Face default location."""
+        new = app_settings.set_models_dir(None)
+        os.environ["HF_HUB_CACHE"] = str(new)
+        return {"models_dir": str(new), "changed": True}
 
     def set_cpu_threads(self, n: int):
         import os as _os

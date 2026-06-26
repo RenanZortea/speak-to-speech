@@ -93,7 +93,13 @@ class WhisperWorker(ModelHost):
                 self._current_id = None
                 gc.collect()
             from faster_whisper import WhisperModel
-            self._model = WhisperModel(model_id, device="cuda", compute_type="float16")
+            from app_settings import get_models_dir
+            self._model = WhisperModel(
+                model_id,
+                device="cuda",
+                compute_type="float16",
+                download_root=str(get_models_dir()),
+            )
             self._current_id = model_id
 
     def transcribe(

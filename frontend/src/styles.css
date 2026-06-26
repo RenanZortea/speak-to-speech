@@ -1747,6 +1747,28 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .settings-loaded-tags .tag.on { background: rgba(94, 196, 123, 0.15); color: var(--ok); }
 .settings-loaded-tags .tag.off { background: var(--bg-elev-2); color: var(--fg-faint); }
 .settings-unload { align-self: flex-start; }
+.settings-choose-dir { align-self: flex-start; }
+.settings-path {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  word-break: break-all;
+  line-height: 1.4;
+}
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.btn-link:hover { text-decoration: underline; }
+.btn-link:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
 
 .settings-about { border-top: 1px solid var(--border); padding-top: 16px; }
 .update-box {

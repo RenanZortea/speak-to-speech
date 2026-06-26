@@ -121,6 +121,8 @@ export type Settings = {
   release_when_idle: boolean;
   whisper_loaded: boolean;
   pron_loaded: boolean;
+  models_dir: string;
+  models_dir_custom: boolean;
 };
 
 export type UpdateInfo = {
@@ -282,6 +284,12 @@ export const api = {
   },
   async unloadAllModels(): Promise<{ whisper_loaded: boolean; pron_loaded: boolean }> {
     return (await ready()).unload_all_models();
+  },
+  async chooseModelsDir(): Promise<{ models_dir: string; changed: boolean } | null> {
+    return (await ready()).choose_models_dir();
+  },
+  async resetModelsDir(): Promise<{ models_dir: string; changed: boolean }> {
+    return (await ready()).reset_models_dir();
   },
   async checkForUpdate(): Promise<UpdateInfo> {
     return (await ready()).check_for_update();
