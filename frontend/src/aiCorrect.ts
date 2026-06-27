@@ -64,6 +64,14 @@ export function parseAiJson(text: string): unknown {
 export type UnplacedCorrection = { segment: number; original: string };
 export type MapResult = { corrections: Correction[]; unplaced: UnplacedCorrection[] };
 
+/** Lifecycle of an Ollama generation, owned by App so it survives the modal
+ *  closing/reopening. */
+export type AiGenState =
+  | { status: "idle" }
+  | { status: "generating"; model: string }
+  | { status: "done"; output: string; result: { added: number; unplaced: UnplacedCorrection[] } }
+  | { status: "error"; error: string };
+
 export function mapAiCorrections(json: unknown, segments: Segment[]): MapResult {
   const { segs } = buildTranscriptDoc(segments);
   const byId = new Map(segs.map((s) => [s.id, s]));

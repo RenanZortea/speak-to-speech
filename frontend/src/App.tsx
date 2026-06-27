@@ -17,12 +17,19 @@ import {
   type Phoneme,
   type PronStatusEvent,
   type ResourceStats,
+  type OllamaStatusEvent,
   type Segment,
   type SessionSummary,
   type TranscribeStatusEvent,
   type UpdateInfo,
 } from "./api";
 import { alignPhonemes } from "./alignment";
+import {
+  buildCorrectionPrompt,
+  mapAiCorrections,
+  parseAiJson,
+  type AiGenState,
+} from "./aiCorrect";
 import { type Correction, correctedSentenceAt, newCorrectionId } from "./corrections";
 import { buildTranscriptDoc } from "./transcriptDoc";
 import { AudioBar } from "./AudioBar";
@@ -105,6 +112,12 @@ export function App() {
   const [ctxMenu, setCtxMenu] = useState<MenuTarget | null>(null);
   const [corrDialog, setCorrDialog] = useState<DialogTarget | null>(null);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  // Ollama generation lives at app level so it keeps running (and still applies
+  // its corrections) even if the user closes the "Correct with AI" window.
+  const [aiGen, setAiGen] = useState<AiGenState>({ status: "idle" });
+  // Current segments for the (mount-time) ollama_status handler closure.
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
 
   // Updates
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -202,6 +215,29 @@ export function App() {
     const offRes = on("resource_stats", (s: ResourceStats) => {
       setResourceStats(s);
     });
+    const offAi = on("ollama_status", (e: OllamaStatusEvent) => {
+      if (e.status === "generating") {
+        setAiGen({ status: "generating", model: e.model });
+      } else if (e.status === "done") {
+        try {
+          const json = parseAiJson(e.text);
+          const { corrections, unplaced } = mapAiCorrections(json, segmentsRef.current);
+          if (corrections.length > 0) {
+            setCorrections((cs) => [...cs, ...corrections]);
+            setHasUnsaved(true);
+          }
+          setAiGen({
+            status: "done",
+            output: e.text,
+            result: { added: corrections.length, unplaced },
+          });
+        } catch (err) {
+          setAiGen({ status: "error", error: (err as Error).message });
+        }
+      } else if (e.status === "error") {
+        setAiGen({ status: "error", error: e.error });
+      }
+    });
     const offUpd = on("update_download", (p: any) => {
       if (p.status === "error" || p.status === "launching" || p.status === "manual") {
         setUpdateProgress(null);
@@ -216,7 +252,7 @@ export function App() {
     });
 
     return () => {
-      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob(); offRes(); offUpd();
+      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob(); offRes(); offUpd(); offAi();
     };
   }, [refreshModels, refreshSessions]);
 
@@ -230,6 +266,7 @@ export function App() {
     setPronStatus("idle");
     setPronError(null);
     setCorrections([]);
+    setAiGen({ status: "idle" });
     setActiveSessionId(null);
     setHasUnsaved(true);
     setStatus({ kind: "transcribing" });
@@ -407,6 +444,11 @@ export function App() {
 
   const activeLanguageName =
     languages.find((l) => l.code === activeLanguage)?.name ?? activeLanguage;
+
+  const startOllamaCorrect = (model: string) => {
+    setAiGen({ status: "generating", model });
+    void api.ollamaCorrect(buildCorrectionPrompt(segments, activeLanguageName), model);
+  };
 
   const busy =
     status.kind === "transcribing" ||
@@ -613,6 +655,8 @@ export function App() {
           languageName={activeLanguageName}
           onApply={applyAiCorrections}
           onClose={() => setAiModalOpen(false)}
+          ollamaGen={aiGen}
+          onOllamaGenerate={startOllamaCorrect}
         />
       )}
 

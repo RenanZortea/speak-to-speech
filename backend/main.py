@@ -358,20 +358,36 @@ class Api:
     def ollama_correct(self, prompt: str, model: str):
         """Generate corrections with a local Ollama model. Async — the raw JSON
         text comes back via the 'ollama_status' event (done/error). The frontend
-        maps it onto the transcript with the same parser as the paste flow."""
+        maps it onto the transcript with the same parser as the paste flow.
+
+        VRAM safety: this goes through the JobLane (so it can't run while a
+        transcribe/pronounce job holds the GPU), and we unload our own GPU model
+        before generating. Ollama is asked to unload right after (keep_alive=0).
+        Net effect on a small card: at most one big model resident at a time."""
         from ollama_client import OllamaError, generate
         url = app_settings.get_ollama_url()
         app_settings.set_ollama_model(model)
 
-        def run():
+        def job():
             self._emit("ollama_status", {"status": "generating", "model": model})
+            # Free VRAM so Ollama's model doesn't load on top of Whisper.
+            self._worker.unload()
+            self._pron.unload()
             try:
-                text = generate(url, model, prompt)
+                text = generate(url, model, prompt, keep_alive=0)
                 self._emit("ollama_status", {"status": "done", "text": text})
             except OllamaError as e:
                 self._emit("ollama_status", {"status": "error", "error": str(e)})
             except Exception as e:
                 self._emit("ollama_status", {"status": "error", "error": str(e)})
+
+        def run():
+            ok = self._jobs.try_run("ai_correction", job)
+            if not ok:
+                self._emit("ollama_status", {
+                    "status": "error",
+                    "error": f"Busy with '{self._jobs.current}' - wait for it to finish.",
+                })
         threading.Thread(target=run, daemon=True).start()
         return {"started": True, "model": model}
 

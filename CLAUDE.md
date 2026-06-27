@@ -32,6 +32,9 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
 - `orchestration.py` — `ModelHost` base, `ResourceManager` (≤1 GPU model resident),
   `JobLane` (serialize compute jobs, single busy signal).
 - `model_manager.py` — model catalog, HF cache mgmt, cancellable downloads (mp child).
+- `ollama_client.py` — stdlib-only client for a *user-run* local Ollama daemon
+  (`list_models`, `generate` w/ `format=json`). Powers local LLM corrections; same
+  JSON correction contract as the paste flow.
 - `session_store.py` — SQLite at `~/SpeakToSpeech/sessions.db`; audio copied into app storage.
 - `resources.py` — psutil CPU/RAM + NVML GPU/VRAM poller.
 - `updater.py` / `version.py` — GitHub-release update check; version source of truth.
@@ -71,6 +74,13 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
   → clear / off-pronunciation / unclear-word(code-switch) / gap. See `alignment.ts`.
 - **AI corrections = same `Correction` shape** as manual; the render/map/persist pipeline is
   shared. JSON is the contract; nothing AI-specific is bundled.
+- **Ollama VRAM coordination**: `ollama_correct` runs through the `JobLane` (can't overlap
+  transcribe/pronounce), unloads our GPU model first, and asks Ollama to free its own VRAM
+  after (`keep_alive=0`). Net: ≤1 big model in VRAM on the 6 GB card. Trade-off: Whisper
+  reloads (~10s) after each correction. Daemon is the user's to run; we never spawn it.
+- **Ollama generation lifecycle lives in `App.tsx`** (`aiGen` state + the `ollama_status`
+  listener), NOT in `CorrectAiModal`, so it keeps running and still applies corrections if
+  the modal is closed mid-generation. The modal is a controlled view of that state.
 
 ## State (as of this writing)
 

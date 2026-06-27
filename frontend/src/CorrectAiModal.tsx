@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Copy, Check, Sparkles, AlertCircle, Cpu, Loader2, RefreshCw } from "lucide-react";
-import { api, on, type OllamaStatusEvent } from "./api";
+import { api } from "./api";
 import type { Segment } from "./api";
 import type { Correction } from "./corrections";
 import {
   buildCorrectionPrompt,
   mapAiCorrections,
   parseAiJson,
+  type AiGenState,
   type UnplacedCorrection,
 } from "./aiCorrect";
 
@@ -15,25 +16,37 @@ interface Props {
   languageName: string;
   onApply: (corrections: Correction[]) => void;
   onClose: () => void;
+  /** Ollama generation lifecycle, owned by App so it survives this modal closing. */
+  ollamaGen: AiGenState;
+  onOllamaGenerate: (model: string) => void;
 }
 
-export function CorrectAiModal({ segments, languageName, onApply, onClose }: Props) {
+export function CorrectAiModal({
+  segments,
+  languageName,
+  onApply,
+  onClose,
+  ollamaGen,
+  onOllamaGenerate,
+}: Props) {
   const prompt = useMemo(
     () => buildCorrectionPrompt(segments, languageName),
     [segments, languageName],
   );
   const [copied, setCopied] = useState(false);
   const [paste, setPaste] = useState("");
+  // Local result/error are for the manual paste path; the Ollama path reports
+  // through `ollamaGen` (lifted to App).
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ added: number; unplaced: UnplacedCorrection[] } | null>(
     null,
   );
 
-  // ---- Ollama (local LLM) ----
+  // ---- Ollama model discovery (cheap; re-checked each open) ----
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
   const [ollamaErr, setOllamaErr] = useState<string | null>(null);
   const [ollamaModel, setOllamaModel] = useState<string>("");
-  const [generating, setGenerating] = useState(false);
+  const generating = ollamaGen.status === "generating";
 
   const refreshOllama = async () => {
     setOllamaErr(null);
@@ -52,24 +65,6 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
     refreshOllama();
   }, []);
 
-  // Latest segments for the event handler (avoids stale closure if user re-runs).
-  const segRef = useRef(segments);
-  segRef.current = segments;
-
-  useEffect(() => {
-    const off = on("ollama_status", (e: OllamaStatusEvent) => {
-      if (e.status === "done") {
-        setGenerating(false);
-        setPaste(e.text);
-        applyFrom(e.text, segRef.current);
-      } else if (e.status === "error") {
-        setGenerating(false);
-        setError(e.error);
-      }
-    });
-    return off;
-  }, []);
-
   const copyPrompt = async () => {
     try {
       await navigator.clipboard.writeText(prompt);
@@ -85,13 +80,13 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
     window.setTimeout(() => setCopied(false), 1800);
   };
 
-  const applyFrom = (text: string, segs: Segment[]) => {
+  const apply = () => {
     setError(null);
     try {
-      const json = parseAiJson(text);
-      const { corrections, unplaced } = mapAiCorrections(json, segs);
+      const json = parseAiJson(paste);
+      const { corrections, unplaced } = mapAiCorrections(json, segments);
       if (corrections.length === 0 && unplaced.length === 0) {
-        setError("No corrections found in the JSON.");
+        setError("No corrections found in the pasted JSON.");
         return;
       }
       onApply(corrections);
@@ -101,20 +96,10 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
     }
   };
 
-  const apply = () => applyFrom(paste, segments);
-
-  const generate = async () => {
-    if (!ollamaModel) return;
-    setError(null);
-    setResult(null);
-    setGenerating(true);
-    try {
-      await api.ollamaCorrect(prompt, ollamaModel);
-    } catch (e) {
-      setGenerating(false);
-      setError((e as Error).message);
-    }
-  };
+  // Prefer the manual-paste outcome if the user just used it; otherwise surface
+  // the (possibly-while-closed) Ollama outcome.
+  const shownError = error ?? (ollamaGen.status === "error" ? ollamaGen.error : null);
+  const shownResult = result ?? (ollamaGen.status === "done" ? ollamaGen.result : null);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -171,7 +156,7 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
             <div className="ollama-run">
               <select
                 className="ollama-select"
-                value={ollamaModel}
+                value={generating ? ollamaGen.model : ollamaModel}
                 onChange={(e) => {
                   setOllamaModel(e.target.value);
                   api.setOllamaModel(e.target.value);
@@ -184,7 +169,11 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
                   </option>
                 ))}
               </select>
-              <button className="btn primary" onClick={generate} disabled={generating || !ollamaModel}>
+              <button
+                className="btn primary"
+                onClick={() => onOllamaGenerate(ollamaModel)}
+                disabled={generating || !ollamaModel}
+              >
                 {generating ? (
                   <>
                     <Loader2 size={14} className="spin" /> Generating…
@@ -195,6 +184,11 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
                   </>
                 )}
               </button>
+            </div>
+          )}
+          {generating && (
+            <div className="ollama-hint">
+              Running locally — you can close this window; corrections apply when it finishes.
             </div>
           )}
         </div>
@@ -231,19 +225,20 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
           />
         </div>
 
-        {error && (
+        {shownError && (
           <div className="ai-error">
-            <AlertCircle size={14} /> {error}
+            <AlertCircle size={14} /> {shownError}
           </div>
         )}
 
-        {result && (
+        {shownResult && (
           <div className="ai-result">
-            <Check size={14} /> Added {result.added} correction{result.added === 1 ? "" : "s"}.
-            {result.unplaced.length > 0 && (
+            <Check size={14} /> Added {shownResult.added} correction
+            {shownResult.added === 1 ? "" : "s"}.
+            {shownResult.unplaced.length > 0 && (
               <span className="ai-unplaced">
                 {" "}
-                {result.unplaced.length} couldn't be placed (quote not found in its segment).
+                {shownResult.unplaced.length} couldn't be placed (quote not found in its segment).
               </span>
             )}
           </div>
@@ -251,7 +246,7 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
 
         <div className="ai-actions">
           <button className="btn ghost" onClick={onClose}>
-            {result ? "Done" : "Cancel"}
+            {shownResult ? "Done" : "Cancel"}
           </button>
           <button className="btn primary" onClick={apply} disabled={!paste.trim()}>
             Apply corrections

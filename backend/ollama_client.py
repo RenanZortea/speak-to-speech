@@ -48,18 +48,24 @@ def generate(
     model: str,
     prompt: str,
     timeout: float = 600.0,
+    keep_alive: str | int = 0,
 ) -> str:
     """Run a non-streaming completion and return the raw text response.
 
     `format="json"` asks Ollama to constrain output to valid JSON, which matches
     our correction contract. The caller still runs it through the tolerant
     parser (parseAiJson) since not every model honors it perfectly.
+
+    `keep_alive=0` tells Ollama to unload the model from VRAM immediately after
+    responding. On a small GPU shared with Whisper this is what keeps the two
+    from coexisting in VRAM and OOM-ing — see Api.ollama_correct.
     """
     body = json.dumps({
         "model": model,
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "keep_alive": keep_alive,
         "options": {"temperature": 0.2},
     }).encode("utf-8")
 
