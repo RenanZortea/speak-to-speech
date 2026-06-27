@@ -22,6 +22,7 @@ Thumbs.db
 recordings/
 sessions/
 sessions.db
+settings.json
 
 # Build artifacts
 build/

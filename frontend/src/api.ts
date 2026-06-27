@@ -166,6 +166,18 @@ export type TranscribeStatusEvent =
   | { status: "done"; duration: number; language?: string | null; model_id?: string }
   | { status: "error"; error: string };
 
+export type OllamaModels = {
+  url: string;
+  models: string[];
+  selected?: string | null;
+  error?: string;
+};
+
+export type OllamaStatusEvent =
+  | { status: "generating"; model: string }
+  | { status: "done"; text: string }
+  | { status: "error"; error: string };
+
 type Listener = (payload: any) => void;
 const listeners = new Map<string, Set<Listener>>();
 
@@ -302,5 +314,14 @@ export const api = {
   },
   async saveText(content: string, defaultName: string): Promise<string | null> {
     return (await ready()).save_text(content, defaultName);
+  },
+  async ollamaListModels(): Promise<OllamaModels> {
+    return (await ready()).ollama_list_models();
+  },
+  async setOllamaModel(model: string): Promise<{ selected: string | null }> {
+    return (await ready()).set_ollama_model(model);
+  },
+  async ollamaCorrect(prompt: string, model: string): Promise<{ started: boolean; model: string }> {
+    return (await ready()).ollama_correct(prompt, model);
   },
 };

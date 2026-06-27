@@ -116,6 +116,8 @@ hiddenimports = [
     # Resource monitor (pynvml is imported lazily in resources.py).
     "psutil",
     "pynvml",
+    # Local module imported lazily inside Api methods / app_settings.
+    "ollama_client",
 ] + collect_submodules("transformers.models.wav2vec2")
 
 # -----------------------------------------------------------------------------

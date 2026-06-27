@@ -62,3 +62,34 @@ def set_models_dir(path: str | None) -> Path:
         data.pop("models_dir", None)
     _save(data)
     return get_models_dir()
+
+
+def get_ollama_url() -> str:
+    """Base URL of the local Ollama daemon. Defaults to the standard port."""
+    from ollama_client import DEFAULT_URL
+    return _load().get("ollama_url") or DEFAULT_URL
+
+
+def set_ollama_url(url: str | None) -> str:
+    data = _load()
+    if url:
+        data["ollama_url"] = url.strip()
+    else:
+        data.pop("ollama_url", None)
+    _save(data)
+    return get_ollama_url()
+
+
+def get_ollama_model() -> str | None:
+    """Last-selected Ollama model name, or None if never chosen."""
+    return _load().get("ollama_model") or None
+
+
+def set_ollama_model(model: str | None) -> str | None:
+    data = _load()
+    if model:
+        data["ollama_model"] = model
+    else:
+        data.pop("ollama_model", None)
+    _save(data)
+    return get_ollama_model()

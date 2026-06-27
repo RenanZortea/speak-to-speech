@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { X, Copy, Check, Sparkles, AlertCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { X, Copy, Check, Sparkles, AlertCircle, Cpu, Loader2, RefreshCw } from "lucide-react";
+import { api, on, type OllamaStatusEvent } from "./api";
 import type { Segment } from "./api";
 import type { Correction } from "./corrections";
 import {
@@ -28,6 +29,47 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
     null,
   );
 
+  // ---- Ollama (local LLM) ----
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null);
+  const [ollamaErr, setOllamaErr] = useState<string | null>(null);
+  const [ollamaModel, setOllamaModel] = useState<string>("");
+  const [generating, setGenerating] = useState(false);
+
+  const refreshOllama = async () => {
+    setOllamaErr(null);
+    setOllamaModels(null);
+    const res = await api.ollamaListModels();
+    if (res.error) {
+      setOllamaErr(res.error);
+      setOllamaModels([]);
+      return;
+    }
+    setOllamaModels(res.models);
+    setOllamaModel(res.selected || res.models[0] || "");
+  };
+
+  useEffect(() => {
+    refreshOllama();
+  }, []);
+
+  // Latest segments for the event handler (avoids stale closure if user re-runs).
+  const segRef = useRef(segments);
+  segRef.current = segments;
+
+  useEffect(() => {
+    const off = on("ollama_status", (e: OllamaStatusEvent) => {
+      if (e.status === "done") {
+        setGenerating(false);
+        setPaste(e.text);
+        applyFrom(e.text, segRef.current);
+      } else if (e.status === "error") {
+        setGenerating(false);
+        setError(e.error);
+      }
+    });
+    return off;
+  }, []);
+
   const copyPrompt = async () => {
     try {
       await navigator.clipboard.writeText(prompt);
@@ -43,18 +85,33 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
     window.setTimeout(() => setCopied(false), 1800);
   };
 
-  const apply = () => {
+  const applyFrom = (text: string, segs: Segment[]) => {
     setError(null);
     try {
-      const json = parseAiJson(paste);
-      const { corrections, unplaced } = mapAiCorrections(json, segments);
+      const json = parseAiJson(text);
+      const { corrections, unplaced } = mapAiCorrections(json, segs);
       if (corrections.length === 0 && unplaced.length === 0) {
-        setError("No corrections found in the pasted JSON.");
+        setError("No corrections found in the JSON.");
         return;
       }
       onApply(corrections);
       setResult({ added: corrections.length, unplaced });
     } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const apply = () => applyFrom(paste, segments);
+
+  const generate = async () => {
+    if (!ollamaModel) return;
+    setError(null);
+    setResult(null);
+    setGenerating(true);
+    try {
+      await api.ollamaCorrect(prompt, ollamaModel);
+    } catch (e) {
+      setGenerating(false);
       setError((e as Error).message);
     }
   };
@@ -70,9 +127,79 @@ export function CorrectAiModal({ segments, languageName, onApply, onClose }: Pro
           Correct with AI
         </h2>
         <p className="modal-sub">
-          Copy the prompt into any AI (ChatGPT, Claude, …), then paste its JSON reply back.
-          Works with any model — the app maps the corrections onto your transcript.
+          Run a local model via Ollama, or copy the prompt into any AI and paste its
+          JSON reply back. Either way the app maps the corrections onto your transcript.
         </p>
+
+        <div className="ai-step ollama-panel">
+          <div className="ai-step-head">
+            <span className="ai-step-num">
+              <Cpu size={13} />
+            </span>
+            <span>Run locally with Ollama</span>
+            <button
+              className="btn ghost ai-copy"
+              onClick={refreshOllama}
+              disabled={generating}
+              title="Re-check Ollama"
+            >
+              <RefreshCw size={13} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {ollamaModels === null && !ollamaErr && (
+            <div className="ollama-hint">
+              <Loader2 size={14} className="spin" /> Checking for Ollama…
+            </div>
+          )}
+
+          {ollamaErr && (
+            <div className="ollama-hint">
+              {ollamaErr} Start it (<code>ollama serve</code>) and click Refresh.
+            </div>
+          )}
+
+          {ollamaModels && ollamaModels.length === 0 && !ollamaErr && (
+            <div className="ollama-hint">
+              Ollama is running but has no models. Pull one, e.g.{" "}
+              <code>ollama pull llama3</code>, then Refresh.
+            </div>
+          )}
+
+          {ollamaModels && ollamaModels.length > 0 && (
+            <div className="ollama-run">
+              <select
+                className="ollama-select"
+                value={ollamaModel}
+                onChange={(e) => {
+                  setOllamaModel(e.target.value);
+                  api.setOllamaModel(e.target.value);
+                }}
+                disabled={generating}
+              >
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <button className="btn primary" onClick={generate} disabled={generating || !ollamaModel}>
+                {generating ? (
+                  <>
+                    <Loader2 size={14} className="spin" /> Generating…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} /> Generate corrections
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="ai-or">— or copy into any AI —</div>
 
         <div className="ai-step">
           <div className="ai-step-head">

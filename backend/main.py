@@ -332,6 +332,49 @@ class Api:
         return {"started": True}
         return {"started": True}
 
+    # ---- Ollama (local LLM corrections) ----
+
+    def ollama_list_models(self):
+        """List models installed in the user's local Ollama daemon.
+
+        The daemon is the user's responsibility to run; we only talk to it.
+        Returns {"url", "models", "selected"} on success, or {"error"} if it's
+        unreachable so the UI can fall back to the copy/paste flow.
+        """
+        from ollama_client import OllamaError, list_models
+        url = app_settings.get_ollama_url()
+        try:
+            models = list_models(url)
+        except OllamaError as e:
+            return {"error": str(e), "url": url, "models": []}
+        selected = app_settings.get_ollama_model()
+        if selected not in models:
+            selected = models[0] if models else None
+        return {"url": url, "models": models, "selected": selected}
+
+    def set_ollama_model(self, model: str):
+        return {"selected": app_settings.set_ollama_model(model)}
+
+    def ollama_correct(self, prompt: str, model: str):
+        """Generate corrections with a local Ollama model. Async — the raw JSON
+        text comes back via the 'ollama_status' event (done/error). The frontend
+        maps it onto the transcript with the same parser as the paste flow."""
+        from ollama_client import OllamaError, generate
+        url = app_settings.get_ollama_url()
+        app_settings.set_ollama_model(model)
+
+        def run():
+            self._emit("ollama_status", {"status": "generating", "model": model})
+            try:
+                text = generate(url, model, prompt)
+                self._emit("ollama_status", {"status": "done", "text": text})
+            except OllamaError as e:
+                self._emit("ollama_status", {"status": "error", "error": str(e)})
+            except Exception as e:
+                self._emit("ollama_status", {"status": "error", "error": str(e)})
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True, "model": model}
+
     def save_text(self, content: str, default_name: str = "transcript.txt"):
         """Open native save dialog; write UTF-8 content; return saved path or None."""
         if not self._window:

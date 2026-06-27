@@ -1509,6 +1509,50 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 .ai-unplaced { color: var(--warn); }
 .ai-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
+/* Ollama (local LLM) panel inside the AI modal */
+.ollama-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.ollama-panel .ai-step-num { background: var(--accent); }
+.ollama-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.ollama-hint code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--surface, rgba(127, 127, 127, 0.12));
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.ollama-run { display: flex; align-items: center; gap: 8px; }
+.ollama-select {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 8px 10px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ollama-select:focus { outline: none; border-color: var(--accent-dim); }
+.ai-or {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  margin: 4px 0 14px;
+  letter-spacing: 0.02em;
+}
+
 /* =========================
    Per-word pronunciation in transcript (legacy React Transcript)
    ========================= */
