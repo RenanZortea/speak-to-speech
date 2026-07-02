@@ -79,6 +79,9 @@ def check_for_update(timeout: float = 6.0) -> dict:
 def download_and_run_installer(url: str, on_progress=None) -> dict:
     """Download the installer to %TEMP% and launch it, then signal the app to exit.
     Returns {"launched": True, "path": ...} or {"error": ...}."""
+    if sys.platform != "win32":
+        # Release assets are Windows installers; running from source elsewhere.
+        return {"error": "Self-update is Windows-only. Update with: git pull && cd frontend && npm run build"}
     try:
         name = url.split("/")[-1] or "SpeakToSpeech-Setup.exe"
         dest = os.path.join(tempfile.gettempdir(), name)

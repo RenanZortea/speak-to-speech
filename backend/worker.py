@@ -2,7 +2,9 @@
 Whisper worker. Holds the model in memory across transcriptions.
 
 CUDA DLL setup MUST run before importing faster_whisper, or CTranslate2
-fails to find cublas/cudnn on Windows.
+fails to find cublas/cudnn on Windows. This preload is Windows-only: on
+Linux, the nvidia-cu12 wheels' .so files are found via the standard dynamic
+linker (RPATH/RUNPATH baked into the wheel), so no equivalent is needed.
 
 Why preload via ctypes.WinDLL with absolute paths instead of just
 os.add_dll_directory? In a long-running app (especially after WebView2 /
@@ -21,42 +23,43 @@ from typing import Optional
 
 from orchestration import ModelHost
 
-# Derive the NVIDIA DLL location.
-#   - Bundled (PyInstaller): DLLs live under sys._MEIPASS/nvidia/* (placed there
-#     by the .spec file's `binaries=` directive).
-#   - Dev: derived from the active venv's site-packages.
-#   - Override via WHISPER_NVIDIA_BASE if your layout is unusual.
-if "WHISPER_NVIDIA_BASE" in os.environ:
-    _NVIDIA_BASE = Path(os.environ["WHISPER_NVIDIA_BASE"])
-elif getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-    _NVIDIA_BASE = Path(sys._MEIPASS) / "nvidia"
-else:
-    _NVIDIA_BASE = Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"
-_DLL_DIRS = [_NVIDIA_BASE / "cublas" / "bin", _NVIDIA_BASE / "cudnn" / "bin"]
+if sys.platform == "win32":
+    # Derive the NVIDIA DLL location.
+    #   - Bundled (PyInstaller): DLLs live under sys._MEIPASS/nvidia/* (placed
+    #     there by the .spec file's `binaries=` directive).
+    #   - Dev: derived from the active venv's site-packages.
+    #   - Override via WHISPER_NVIDIA_BASE if your layout is unusual.
+    if "WHISPER_NVIDIA_BASE" in os.environ:
+        _NVIDIA_BASE = Path(os.environ["WHISPER_NVIDIA_BASE"])
+    elif getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        _NVIDIA_BASE = Path(sys._MEIPASS) / "nvidia"
+    else:
+        _NVIDIA_BASE = Path(sys.executable).parent.parent / "Lib" / "site-packages" / "nvidia"
+    _DLL_DIRS = [_NVIDIA_BASE / "cublas" / "bin", _NVIDIA_BASE / "cudnn" / "bin"]
 
-# Keep handles alive at module level (some Python versions may treat the
-# os.add_dll_directory return value as releasing the dir on GC).
-_dll_dir_handles = []
-for _d in _DLL_DIRS:
-    if _d.exists():
-        _dll_dir_handles.append(os.add_dll_directory(str(_d)))
+    # Keep handles alive at module level (some Python versions may treat the
+    # os.add_dll_directory return value as releasing the dir on GC).
+    _dll_dir_handles = []
+    for _d in _DLL_DIRS:
+        if _d.exists():
+            _dll_dir_handles.append(os.add_dll_directory(str(_d)))
 
-# Preload by absolute path. Order matters: cublasLt before cublas; cudnn
-# dependencies before cudnn.dll itself.
-_PRELOAD = [
-    _NVIDIA_BASE / "cublas" / "bin" / "cublasLt64_12.dll",
-    _NVIDIA_BASE / "cublas" / "bin" / "cublas64_12.dll",
-    _NVIDIA_BASE / "cudnn" / "bin" / "cudnn_graph64_9.dll",
-    _NVIDIA_BASE / "cudnn" / "bin" / "cudnn_ops64_9.dll",
-    _NVIDIA_BASE / "cudnn" / "bin" / "cudnn64_9.dll",
-]
-_loaded_dlls = []
-for _p in _PRELOAD:
-    if _p.exists():
-        try:
-            _loaded_dlls.append(ctypes.WinDLL(str(_p)))
-        except OSError:
-            pass  # some cudnn submodules may not be needed; let faster-whisper try later
+    # Preload by absolute path. Order matters: cublasLt before cublas; cudnn
+    # dependencies before cudnn.dll itself.
+    _PRELOAD = [
+        _NVIDIA_BASE / "cublas" / "bin" / "cublasLt64_12.dll",
+        _NVIDIA_BASE / "cublas" / "bin" / "cublas64_12.dll",
+        _NVIDIA_BASE / "cudnn" / "bin" / "cudnn_graph64_9.dll",
+        _NVIDIA_BASE / "cudnn" / "bin" / "cudnn_ops64_9.dll",
+        _NVIDIA_BASE / "cudnn" / "bin" / "cudnn64_9.dll",
+    ]
+    _loaded_dlls = []
+    for _p in _PRELOAD:
+        if _p.exists():
+            try:
+                _loaded_dlls.append(ctypes.WinDLL(str(_p)))
+            except OSError:
+                pass  # some cudnn submodules may not be needed; let faster-whisper try later
 
 class WhisperWorker(ModelHost):
     id = "whisper"

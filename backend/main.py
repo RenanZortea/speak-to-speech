@@ -18,8 +18,15 @@ os.environ.setdefault(
     "--use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required",
 )
 
-import json
+# Linux + NVIDIA proprietary driver: WebKitGTK's DMA-BUF renderer crashes the
+# window with "Error 71 (Protocol error) dispatching to Wayland display"
+# (known WebKitGTK/NVIDIA bug, same one Tauri apps hit). Disable it before the
+# webview module spawns WebKit's processes. setdefault so users can override.
 import sys
+if sys.platform == "linux" and os.path.exists("/proc/driver/nvidia"):
+    os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+
+import json
 import threading
 from pathlib import Path
 
@@ -46,7 +53,7 @@ from model_manager import (
 from orchestration import JobLane, ResourceManager
 from pronunciation import PRON_MODEL_ID, PronunciationWorker
 from resources import ResourceMonitor
-from session_store import SessionStore
+from session_store import DEFAULT_BASE, SessionStore
 from worker import WhisperWorker
 
 DEV_URL = "http://localhost:5173"
@@ -486,7 +493,17 @@ def main():
         min_size=(700, 500),
     )
     api._set_window(window)
-    webview.start(debug=dev)
+    # private_mode defaults to True; on the GTK backend that sets WebKit's
+    # enable-html5-local-storage=False, which removes window.localStorage from
+    # JS entirely ("ReferenceError: Can't find variable: localStorage" in
+    # App.tsx). WebView2 on Windows keeps localStorage in private mode, so
+    # this only bites on Linux. private_mode=False also makes storage_path
+    # take effect (private mode short-circuits to an ephemeral context).
+    webview.start(
+        debug=dev,
+        private_mode=False,
+        storage_path=str(DEFAULT_BASE / "webview"),
+    )
 
 
 def _setup_frozen_logging():

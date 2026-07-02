@@ -20,6 +20,11 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
   Inno Setup `installer.iss` → portable zip). Flags: `-SkipFrontend -SkipInstaller -SkipZip -Clean`.
 - Frozen pronunciation self-test: run the built EXE with `--selftest` (writes PASS/FAIL to
   `%TEMP%\SpeakToSpeech-launch.log`).
+- **Linux (Arch, since v0.6.0)**: venv at repo-root `.venv/` (Python 3.11 from AUR
+  `python311`); needs system `webkit2gtk-4.1` + pip `pycairo PyGObject`. Dev:
+  `.venv/bin/python backend/main.py --dev`. Port notes + release gotchas in
+  `ArchPackage.md`. Releases without a Windows installer must be **pre-releases**
+  (the Windows updater polls `/releases/latest`, which skips them).
 
 ## Architecture
 

@@ -49,15 +49,18 @@ couldn't say*. Concretely that means:
 
 ## Requirements
 
-- **Windows + NVIDIA GPU** with CUDA-capable driver. Tested on RTX 2060 6 GB.
+- **Windows or Linux + NVIDIA GPU** with CUDA-capable driver. Tested on RTX 2060 6 GB
+  (Windows 10/11 and Arch Linux under Wayland/Hyprland).
 - **Python 3.11** (faster-whisper + CTranslate2 wheels don't build cleanly on 3.14 yet).
 - **Node.js 18+** and **npm**.
 - **ffmpeg** on PATH (any recent version).
 
-Linux/macOS *will* work in principle — the only Windows-specific code is the
-explicit CUDA DLL preload in `worker.py`. CPU-only inference also works
+macOS *will* work in principle. CPU-only inference also works
 (swap `device="cuda"` → `device="cpu"` in `worker.py`), but it's painfully slow on
 large models.
+
+Windows gets the prebuilt installer from [Releases](../../releases); on Linux you
+run from source (see [Linux setup](#linux-setup-arch-tested) below).
 
 ## Setup
 
@@ -117,6 +120,46 @@ npm run build
 cd ..
 .\.venv\Scripts\python.exe backend\main.py
 ```
+
+## Linux setup (Arch tested)
+
+Same app, run from source. On Arch:
+
+```bash
+# System deps: WebKitGTK for the pywebview window, Python 3.11 from the AUR
+sudo pacman -S webkit2gtk-4.1 ffmpeg
+paru -S python311   # or any AUR helper
+
+git clone https://github.com/RenanZortea/speak-to-speech.git
+cd speak-to-speech
+python3.11 -m venv .venv
+
+# Python deps — same pins as Windows, plus GTK bindings for pywebview
+.venv/bin/pip install -r backend/requirements.txt
+.venv/bin/pip install faster-whisper==1.2.1 ctranslate2==4.7.2
+.venv/bin/pip install "nvidia-cublas-cu12==12.9.*" "nvidia-cudnn-cu12==9.*"
+.venv/bin/pip install pycairo PyGObject
+# Pronunciation analysis (optional but recommended): CPU torch + transformers
+.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install transformers soundfile
+
+cd frontend && npm install && cd ..
+```
+
+Run it the same way as Windows — dev mode with two terminals
+(`npm run dev` + `.venv/bin/python backend/main.py --dev`), or build once and run
+`.venv/bin/python backend/main.py`.
+
+Linux notes:
+
+- **No CUDA preload dance.** The nvidia-cu12 wheels are found by the regular
+  dynamic linker; `worker.py`'s Windows DLL preload is skipped on Linux.
+- **NVIDIA + Wayland**: WebKitGTK's DMA-BUF renderer crashes on the proprietary
+  driver ("Error 71 dispatching to Wayland display"). The app detects NVIDIA and
+  sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` automatically; export it yourself to
+  override.
+- **In-app updater is Windows-only** (it downloads the Setup.exe). On Linux,
+  update with `git pull` + `npm run build`.
 
 ## First launch
 
