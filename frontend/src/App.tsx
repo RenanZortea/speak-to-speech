@@ -5,6 +5,7 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  X,
 } from "lucide-react";
 import {
   api,
@@ -64,6 +65,7 @@ type AppStatus =
 
 export function App() {
   const [status, setStatus] = useState<AppStatus>({ kind: "checking" });
+  const [modelNoticeDismissed, setModelNoticeDismissed] = useState(false);
   const [gpu, setGpu] = useState<GpuInfo | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [audio, setAudio] = useState<{ path: string; url: string } | null>(null);
@@ -138,6 +140,12 @@ export function App() {
   const refreshSessions = useCallback(async () => {
     setSessions(await api.listSessions());
   }, []);
+
+  // Re-surface the dismissible notice whenever the model goes missing again
+  // (fresh launch, or deleted mid-session) — dismissal is per-occurrence, not permanent.
+  useEffect(() => {
+    if (status.kind === "model_missing") setModelNoticeDismissed(false);
+  }, [status.kind]);
 
   useEffect(() => {
     api.checkModel().then((r) => {
@@ -455,36 +463,53 @@ export function App() {
     status.kind === "loading_model" ||
     status.kind === "downloading";
 
-  // Special pre-ready UI: model needs downloading
-  if (status.kind === "model_missing" || status.kind === "downloading") {
-    return (
-      <div className="boot">
-        <div className="boot-card">
-          <h2>One-time setup</h2>
+  const showModelNotice =
+    (status.kind === "model_missing" || status.kind === "downloading") && !modelNoticeDismissed;
+
+  return (
+    <div className="app">
+      {showModelNotice && (
+        <div className="model-notice">
+          <button
+            className="model-notice-close"
+            onClick={() => setModelNoticeDismissed(true)}
+            title="Dismiss"
+          >
+            <X size={14} />
+          </button>
           {status.kind === "model_missing" ? (
             <>
+              <h3>Model needed</h3>
               <p>
                 The Hebrew Whisper model (<code>ivrit-ai/whisper-large-v3-ct2</code>, ~3 GB)
-                needs to be downloaded. Stored once in your HuggingFace cache.
+                isn't downloaded yet.
               </p>
-              <button className="btn primary" onClick={() => api.downloadModel()}>
-                <Download size={16} />
-                <span>Download model</span>
-              </button>
+              <div className="model-notice-actions">
+                <button className="btn primary" onClick={() => api.downloadModel()}>
+                  <Download size={14} />
+                  <span>Download</span>
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    setModelManagerOpen(true);
+                    setModelNoticeDismissed(true);
+                  }}
+                >
+                  <span>Choose a model…</span>
+                </button>
+              </div>
             </>
           ) : (
             <>
-              <p>Downloading model — {fmtBytes(status.bytes)} of ~3 GB.</p>
+              <h3>Downloading model…</h3>
+              <p>{fmtBytes(status.bytes)} of ~3 GB</p>
               <ProgressBar value={status.bytes} max={3_100_000_000} />
             </>
           )}
         </div>
-      </div>
-    );
-  }
+      )}
 
-  return (
-    <div className="app">
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark" />

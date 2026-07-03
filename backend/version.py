@@ -7,7 +7,7 @@ Read by:
 
 Bump this, then build + tag a matching release.
 """
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 # GitHub repo for update checks (owner/name).
 GITHUB_REPO = "RenanZortea/speak-to-speech"

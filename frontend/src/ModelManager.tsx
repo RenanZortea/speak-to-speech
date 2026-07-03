@@ -58,6 +58,11 @@ export function ModelManager({
             ? { bytes: p.bytes, status: "cancelled" }
             : { bytes: 0, status: "error", error: p.error },
       }));
+      // A custom-ID download has no card until the backend discovers the new
+      // cache dir; keep refreshing until it shows up so progress is visible.
+      if (p.status === "downloading" && !models.some((m) => m.id === p.model_id)) {
+        onRefresh();
+      }
       if (p.status === "complete" || p.status === "error" || p.status === "cancelled") {
         // refresh catalog so presence/size flip
         onRefresh();
@@ -74,7 +79,7 @@ export function ModelManager({
       }
     });
     return () => off();
-  }, [onRefresh]);
+  }, [onRefresh, models]);
 
   const handleDownload = async (modelId: string) => {
     setProgress((prev) => ({ ...prev, [modelId]: { bytes: 0, status: "downloading" } }));

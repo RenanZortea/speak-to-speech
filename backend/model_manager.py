@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from app_settings import get_models_dir
+from pronunciation import PRON_MODEL_ID
 
 DEFAULT_MODEL_ID = "ivrit-ai/whisper-large-v3-ct2"
 DEFAULT_LANGUAGE = "he"
@@ -164,16 +165,61 @@ def model_size_on_disk(model_id: str) -> int:
         return _dir_size(_cache_dir(model_id))
 
 
+def _scan_repo_sizes() -> dict[str, int]:
+    """One pass over the HF cache: model repo_id -> size_on_disk."""
+    try:
+        from huggingface_hub import scan_cache_dir
+        info = scan_cache_dir(cache_dir=_hub_dir())
+        return {
+            r.repo_id: r.size_on_disk
+            for r in info.repos
+            if getattr(r, "repo_type", "model") == "model"
+        }
+    except Exception:
+        out: dict[str, int] = {}
+        for d in _hub_dir().glob("models--*"):
+            repo_id = d.name[len("models--"):].replace("--", "/", 1)
+            out[repo_id] = _dir_size(d)
+        return out
+
+
 def list_models() -> list[dict]:
-    """Return CATALOG + presence + actual size on disk for each model."""
-    return [
+    """CATALOG + presence/size, then any cached repo not in the CATALOG as a
+    'custom' entry — otherwise models downloaded by custom HF repo ID would
+    never show up (and so could never be selected)."""
+    sizes = _scan_repo_sizes()
+
+    def present(model_id: str, expected: int) -> bool:
+        return sizes.get(model_id, 0) > max(50_000_000, expected // 2)
+
+    out = [
         {
             **m,
-            "present": is_model_present(m["id"]),
-            "size_on_disk": model_size_on_disk(m["id"]),
+            "present": present(m["id"], m["size_bytes"]),
+            "size_on_disk": sizes.get(m["id"], 0),
         }
         for m in CATALOG
     ]
+
+    known = {m["id"] for m in CATALOG}
+    for repo_id in sorted(sizes):
+        # The pronunciation model shares this cache; it isn't a Whisper model.
+        if repo_id in known or repo_id == PRON_MODEL_ID:
+            continue
+        size = sizes[repo_id]
+        org, _, name = repo_id.partition("/")
+        out.append({
+            "id": repo_id,
+            "name": name or repo_id,
+            "publisher": org,
+            "languages": ["custom"],
+            "size_bytes": size,
+            "type": "custom",
+            "description": "Downloaded by HF repo ID. Must be a CTranslate2 (faster-whisper) conversion.",
+            "present": present(repo_id, size),
+            "size_on_disk": size,
+        })
+    return out
 
 
 def delete_model(model_id: str) -> bool:

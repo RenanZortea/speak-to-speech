@@ -40,7 +40,7 @@ export type CatalogModel = {
   publisher: string;
   languages: string[];
   size_bytes: number;
-  type: "official" | "fine-tune";
+  type: "official" | "fine-tune" | "custom";
   description: string;
   default?: boolean;
   present: boolean;

@@ -14,7 +14,27 @@ installer, no AppImage — just make the app launch and work correctly.
 natural fit for Arch (no installer/updater needed — pacman handles it). Only
 worth doing if we decide to actually publish a Linux release.
 
-## Status: Phase 1 — DONE (v0.6.0, 2026-07-02). Phase 2 (AUR packaging) not started.
+## Status: Phase 1 — DONE (v0.6.0, then post-release UI fixes in v0.6.1,
+2026-07-02). Phase 2 (AUR packaging) not started.
+
+## Post-release UI fixes (v0.6.1)
+
+Found while actually using the app on Arch after v0.6.0:
+
+- Modals clipped instead of scrolling on a short window (`.settings-body`,
+  esp. the update box, got cut off with no way to reach it). Fixed:
+  `.settings-body` scrolls internally; `.modal` got an `overflow-y: auto`
+  fallback so the AI-correct/correction dialogs (same latent bug) are covered
+  too.
+- Custom HF repo ID downloads never showed up in the model list — `list_models()`
+  only ever returned the hardcoded `CATALOG`, so a downloaded custom model had
+  no card and no way to select it. Fixed: one `scan_cache_dir` pass now appends
+  any cached repo not in `CATALOG` as a `type: "custom"` entry (pronunciation
+  model excluded by ID).
+- "No model downloaded" was a full-screen blocker with no way to look around
+  the app first. Replaced with a dismissible corner card (`.model-notice`) —
+  app renders normally behind it; closing it just hides it until the model
+  goes missing again (fresh launch, or deleted mid-session).
 
 ## Phase 1 checklist — run from source
 
