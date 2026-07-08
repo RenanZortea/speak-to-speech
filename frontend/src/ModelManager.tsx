@@ -256,6 +256,14 @@ function ModelCard({
 
       <p className="mm-desc">{model.description}</p>
 
+      {model.present && !model.usable && !isDownloading && (
+        <div className="mm-error">
+          Downloaded, but not a CTranslate2 model — faster-whisper can't load it
+          (this looks like a Transformers/safetensors repo). Delete it and use a
+          faster-whisper conversion instead.
+        </div>
+      )}
+
       {isDownloading && (
         <div className="mm-progress">
           <div className="mm-progress-bar">
@@ -301,7 +309,7 @@ function ModelCard({
           </>
         )}
 
-        {model.present && !isActive && (
+        {model.usable && !isActive && (
           <button className="btn primary" onClick={onUse}>
             <Check size={14} />
             <span>Use</span>

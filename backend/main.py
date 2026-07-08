@@ -46,6 +46,7 @@ from model_manager import (
     delete_model as mm_delete_model,
     download_model as mm_download_model,
     gpu_info,
+    has_ct2_weights,
     is_model_present,
     languages_payload,
     list_models,
@@ -57,6 +58,13 @@ from session_store import DEFAULT_BASE, SessionStore
 from worker import WhisperWorker
 
 DEV_URL = "http://localhost:5173"
+
+
+def _model_usable(model_id: str) -> bool:
+    """True iff a Whisper model is both downloaded and loadable by faster-whisper
+    (CTranslate2 weights present). Guards against selecting a Transformers-format
+    repo that's on disk but crashes transcription."""
+    return is_model_present(model_id) and has_ct2_weights(model_id)
 
 # Resolve the production index:
 #   - Bundled (PyInstaller): under sys._MEIPASS/frontend/dist/
@@ -80,13 +88,34 @@ class Api:
         self._sessions = SessionStore()
         self._monitor = ResourceMonitor(emit=lambda s: self._emit("resource_stats", s))
         self._window = None
-        # Active selection — Hebrew by default. Persists across transcribes.
-        self._active_model_id = DEFAULT_MODEL_ID
-        self._active_language = DEFAULT_LANGUAGE
+        # Active selection — persisted across restarts (see app_settings). Falls
+        # back to the Hebrew default, and if that isn't downloaded but some other
+        # catalog model is, to that — so we don't nag "install the default model"
+        # when a usable model is already present and selected.
+        self._active_model_id = self._resolve_active_model()
+        self._active_language = app_settings.get_active_language() or DEFAULT_LANGUAGE
         # Resource settings.
         import os as _os
         self._cpu_threads = max(1, (_os.cpu_count() or 4) // 2)
         self._release_when_idle = False
+
+    def _resolve_active_model(self) -> str:
+        """Pick the model to treat as active at startup. Prefer the persisted
+        selection if it's usable; else the default; else any usable model."""
+        saved = app_settings.get_active_model()
+        if saved and _model_usable(saved):
+            return saved
+        if _model_usable(DEFAULT_MODEL_ID):
+            return DEFAULT_MODEL_ID
+        # Default isn't usable/downloaded — fall back to any *usable* model so we
+        # don't nag "install the default" when a working one exists. "usable" =
+        # loadable by faster-whisper (CTranslate2), not merely present on disk:
+        # a Transformers-format repo is present but crashes transcription.
+        usable = [m for m in list_models() if m.get("usable")]
+        usable.sort(key=lambda m: m.get("type") == "custom")  # catalog before custom
+        if usable:
+            return usable[0]["id"]
+        return saved or DEFAULT_MODEL_ID
 
     def _on_job_state(self, job_name):
         """JobLane state callback → single busy/idle signal to the UI."""
@@ -109,10 +138,13 @@ class Api:
     # ---- JS-exposed ----
 
     def check_model(self):
+        # `present` here means "ready to transcribe" — downloaded AND a valid
+        # CTranslate2 model. A Transformers-format repo is on disk but unusable,
+        # so it must read as not-ready (→ the UI prompts to get a real model).
         return {
             "active_model_id": self._active_model_id,
             "active_language": self._active_language,
-            "present": is_model_present(self._active_model_id),
+            "present": _model_usable(self._active_model_id),
             "model_loaded": self._worker.is_loaded,
             "current_model_id": self._worker.current_id,
             "gpu": gpu_info(),
@@ -130,10 +162,12 @@ class Api:
 
     def set_active_model(self, model_id: str):
         self._active_model_id = model_id
+        app_settings.set_active_model(model_id)
         return {"active_model_id": self._active_model_id}
 
     def set_active_language(self, language: str):
         self._active_language = language
+        app_settings.set_active_language(language)
         return {"active_language": self._active_language}
 
     def preload_model(self, model_id: str | None = None):
@@ -141,6 +175,8 @@ class Api:
         target = model_id or self._active_model_id
         if not is_model_present(target):
             return {"error": "not_downloaded", "model_id": target}
+        if not has_ct2_weights(target):
+            return {"error": "not_ct2", "model_id": target}
 
         def run():
             try:
@@ -493,6 +529,8 @@ def main():
         min_size=(700, 500),
     )
     api._set_window(window)
+    if sys.platform == "linux":
+        _grant_media_permissions_linux(window)
     # private_mode defaults to True; on the GTK backend that sets WebKit's
     # enable-html5-local-storage=False, which removes window.localStorage from
     # JS entirely ("ReferenceError: Can't find variable: localStorage" in
@@ -504,6 +542,36 @@ def main():
         private_mode=False,
         storage_path=str(DEFAULT_BASE / "webview"),
     )
+
+
+def _grant_media_permissions_linux(window):
+    """Auto-grant getUserMedia (mic) on the WebKitGTK backend.
+
+    On Windows, WebView2's ``--use-fake-ui-for-media-stream`` browser arg silently
+    grants mic access. WebKitGTK has no equivalent: ``enable_media_stream`` is on,
+    but WebKit *denies* every permission request unless a ``permission-request``
+    handler is connected, so ``getUserMedia`` fails and recording never starts.
+    Connect the signal (once the webview exists, on ``shown``) and allow media
+    requests. Safe for a local single-user tool; do not ship in a multi-user app."""
+    def on_shown():
+        try:
+            from webview.platforms.gtk import BrowserView
+            from gi.repository import WebKit2
+            view = BrowserView.instances.get(window.uid)
+            if view is None:
+                return
+
+            def on_permission(_webview, request):
+                if isinstance(request, WebKit2.UserMediaPermissionRequest):
+                    request.allow()
+                    return True
+                return False
+
+            view.webview.connect("permission-request", on_permission)
+        except Exception as e:
+            print(f"mic permission hook failed: {e}", file=sys.stderr)
+
+    window.events.shown += on_shown
 
 
 def _setup_frozen_logging():

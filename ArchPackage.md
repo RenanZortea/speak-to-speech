@@ -85,10 +85,23 @@ Found while actually using the app on Arch after v0.6.0:
 - [x] App verified working end-to-end on Arch/Hyprland/Wayland/NVIDIA (user
       confirmed, 2026-07-02).
 
-## Phase 2 checklist — packaging (not started)
+## Phase 2 checklist — packaging
 
-- [ ] Decide: AUR PKGBUILD vs AppImage (leaning PKGBUILD — Arch-native, pacman
-      handles updates so we can drop the custom updater on Linux)
+- [x] **Local-only PKGBUILD** (`packaging/arch/`), for personal `makepkg -si`
+      use — not published/AUR, no `.SRCINFO`. `prepare()` snapshots tracked
+      files via `git archive` (skips `.venv/`, `node_modules/`, `dist/`);
+      `build()` runs `npm run build` + builds a fresh `python3.11` venv with
+      the same pins as the README; `package()` installs to
+      `/opt/speaktospeech` + `/usr/bin/speaktospeech` (launcher) +
+      `.desktop`/icon (`packaging/arch/speaktospeech.png`, generated from
+      `docs/icon-source.png` via `convert`). Built + verified 2026-07-02:
+      3.6 GB installed, all deps already present as system packages so
+      `makepkg` needed no interactive installs. **Remember to bump `pkgver`
+      in `PKGBUILD` alongside `backend/version.py`** — it's not wired to
+      read it automatically.
+- [ ] Decide: publish to AUR vs AppImage, if ever wanted (leaning PKGBUILD/AUR
+      if so — Arch-native, pacman handles updates so we can drop the custom
+      updater on Linux entirely). Not needed for personal use, above covers it.
 - [ ] `updater.py` expects a GitHub release `.exe`/`.zip` asset and shells out to
       run the installer. Interim guard added 2026-07-02:
       `download_and_run_installer` now refuses on non-Windows and tells the user

@@ -153,6 +153,26 @@ def is_model_present(model_id: str) -> bool:
         return _dir_size(_cache_dir(model_id)) > threshold
 
 
+def has_ct2_weights(model_id: str) -> bool:
+    """True iff the model's cache holds CTranslate2 weights (a ``model.bin``) —
+    i.e. faster-whisper can actually load it. A Transformers-format Whisper repo
+    (``model.safetensors`` / ``pytorch_model.bin``) is present on disk but *not*
+    usable here; without this check it gets auto-selected and transcription dies
+    with a misleading "download a model" prompt."""
+    try:
+        from huggingface_hub import scan_cache_dir
+        info = scan_cache_dir(cache_dir=_hub_dir())
+        for repo in info.repos:
+            if repo.repo_id != model_id:
+                continue
+            for rev in repo.revisions:
+                if any(f.file_name == "model.bin" for f in rev.files):
+                    return True
+        return False
+    except Exception:
+        return any(_cache_dir(model_id).glob("snapshots/*/model.bin"))
+
+
 def model_size_on_disk(model_id: str) -> int:
     try:
         from huggingface_hub import scan_cache_dir
@@ -183,19 +203,46 @@ def _scan_repo_sizes() -> dict[str, int]:
         return out
 
 
+def _ct2_repos() -> set[str]:
+    """One pass over the HF cache: repo_ids that carry CTranslate2 weights
+    (a ``model.bin``), i.e. the ones faster-whisper can load."""
+    try:
+        from huggingface_hub import scan_cache_dir
+        info = scan_cache_dir(cache_dir=_hub_dir())
+        out = set()
+        for repo in info.repos:
+            for rev in repo.revisions:
+                if any(f.file_name == "model.bin" for f in rev.files):
+                    out.add(repo.repo_id)
+                    break
+        return out
+    except Exception:
+        out = set()
+        for d in _hub_dir().glob("models--*"):
+            if any(d.glob("snapshots/*/model.bin")):
+                repo_id = d.name[len("models--"):].replace("--", "/", 1)
+                out.add(repo_id)
+        return out
+
+
 def list_models() -> list[dict]:
     """CATALOG + presence/size, then any cached repo not in the CATALOG as a
     'custom' entry — otherwise models downloaded by custom HF repo ID would
     never show up (and so could never be selected)."""
     sizes = _scan_repo_sizes()
+    ct2 = _ct2_repos()
 
     def present(model_id: str, expected: int) -> bool:
         return sizes.get(model_id, 0) > max(50_000_000, expected // 2)
 
+    # `present` = downloaded (bytes on disk). `usable` = actually loadable by
+    # faster-whisper (has CTranslate2 model.bin). A Transformers-format repo can
+    # be present-but-not-usable; the UI must not let it be selected/transcribed.
     out = [
         {
             **m,
             "present": present(m["id"], m["size_bytes"]),
+            "usable": present(m["id"], m["size_bytes"]) and m["id"] in ct2,
             "size_on_disk": sizes.get(m["id"], 0),
         }
         for m in CATALOG
@@ -217,6 +264,7 @@ def list_models() -> list[dict]:
             "type": "custom",
             "description": "Downloaded by HF repo ID. Must be a CTranslate2 (faster-whisper) conversion.",
             "present": present(repo_id, size),
+            "usable": present(repo_id, size) and repo_id in ct2,
             "size_on_disk": size,
         })
     return out

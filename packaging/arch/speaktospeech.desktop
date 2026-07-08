@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SpeakToSpeech
+Comment=Local speech-to-text for language learning
+Exec=/usr/bin/speaktospeech
+Icon=speaktospeech
+Terminal=false
+Categories=AudioVideo;Audio;Education;
+StartupWMClass=SpeakToSpeech

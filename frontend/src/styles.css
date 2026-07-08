@@ -1651,6 +1651,17 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 }
 .model-notice-close:hover { background: var(--bg-elev-2); color: var(--fg); }
 
+/* Error variant of the notice card — a warm accent border + scrollable message
+   so long backend errors (e.g. CUDA OOM text) stay readable, not clipped. */
+.model-notice.error-notice { border-color: var(--danger, #e5484d); }
+.error-notice h3 { color: var(--danger, #e5484d); }
+.error-notice-msg {
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .progress {
   width: 100%;
   height: 8px;

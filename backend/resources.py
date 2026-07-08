@@ -42,6 +42,20 @@ def _gpu_stats() -> dict:
         return {"available": False}
 
 
+def available_ram() -> int:
+    """Bytes of host RAM currently available (reclaimable), per psutil."""
+    return int(psutil.virtual_memory().available)
+
+
+def free_vram() -> int | None:
+    """Bytes free on GPU 0, or None if there's no NVML/GPU. 'Free' already
+    accounts for whatever else (desktop, browser, other models) is resident."""
+    s = _gpu_stats()
+    if not s.get("available"):
+        return None
+    return int(s["vram_total"]) - int(s["vram_used"])
+
+
 def get_stats() -> dict:
     vm = psutil.virtual_memory()
     return {

@@ -1,0 +1,66 @@
+# Maintainer: Renan Zortea <renanzorteadefreitas@gmail.com>
+#
+# Local-only package for personal use (not published to the AUR). Builds a
+# fresh venv + frontend bundle from the git repo this PKGBUILD lives in, and
+# installs it to /opt/speaktospeech with a desktop entry so it launches like
+# a normal app instead of needing two dev-mode terminals.
+#
+# Usage: cd packaging/arch && makepkg -si
+pkgname=speaktospeech
+pkgver=0.7.0
+pkgrel=1
+pkgdesc="Local speech-to-text for language learning (Hebrew-first)"
+arch=('x86_64')
+url="https://github.com/RenanZortea/speak-to-speech"
+license=('MIT')
+# gst-plugins-{base,good} + gst-libav supply the GStreamer encoders WebKitGTK's
+# MediaRecorder needs (opus/vorbis+webmmux, or aac+qtmux). Without them, in-app
+# recording fails at start() with "MediaRecorder unsupported on this platform".
+depends=('webkit2gtk-4.1' 'gtk3' 'ffmpeg'
+         'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
+makedepends=('python311' 'python-gobject' 'cairo' 'gobject-introspection' 'nodejs' 'npm' 'git')
+options=('!strip')  # prebuilt CUDA/torch wheels aren't ours to strip
+
+_reporoot() { git -C "$startdir" rev-parse --show-toplevel; }
+
+prepare() {
+  # Snapshot only tracked files (skips .venv/, node_modules/, dist/, sessions).
+  rm -rf "$srcdir/$pkgname"
+  mkdir -p "$srcdir/$pkgname"
+  git -C "$(_reporoot)" archive HEAD | tar -x -C "$srcdir/$pkgname"
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+
+  echo "==> Building frontend..."
+  (cd frontend && npm install && npm run build)
+
+  echo "==> Building venv (python3.11)..."
+  python3.11 -m venv venv
+  venv/bin/pip install --upgrade pip -q
+  venv/bin/pip install -q -r backend/requirements.txt
+  venv/bin/pip install -q faster-whisper==1.2.1 ctranslate2==4.7.2
+  venv/bin/pip install -q "nvidia-cublas-cu12==12.9.*" "nvidia-cudnn-cu12==9.*"
+  venv/bin/pip install -q pycairo PyGObject
+  venv/bin/pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+  venv/bin/pip install -q transformers soundfile
+}
+
+package() {
+  local reporoot; reporoot="$(_reporoot)"
+  local src="$srcdir/$pkgname"
+
+  install -dm755 "$pkgdir/opt/$pkgname"
+  cp -r "$src/backend" "$pkgdir/opt/$pkgname/backend"
+  cp -r "$src/venv" "$pkgdir/opt/$pkgname/venv"
+  install -dm755 "$pkgdir/opt/$pkgname/frontend"
+  cp -r "$src/frontend/dist" "$pkgdir/opt/$pkgname/frontend/dist"
+
+  install -Dm755 "$reporoot/packaging/arch/speaktospeech.sh" "$pkgdir/usr/bin/speaktospeech"
+  install -Dm644 "$reporoot/packaging/arch/speaktospeech.desktop" \
+    "$pkgdir/usr/share/applications/speaktospeech.desktop"
+  install -Dm644 "$reporoot/packaging/arch/speaktospeech.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/speaktospeech.png"
+  install -Dm644 "$reporoot/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

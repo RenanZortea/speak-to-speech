@@ -60,6 +60,7 @@ type AppStatus =
   | { kind: "ready" }
   | { kind: "loading_model" }
   | { kind: "transcribing" }
+  | { kind: "low_memory_retry" }
   | { kind: "done"; duration: number }
   | { kind: "error"; message: string };
 
@@ -181,6 +182,7 @@ export function App() {
         setStatus({ kind: "loading_model" });
         if (p.model_id) setCurrentLoadedId(p.model_id);
       } else if (p.status === "transcribing") setStatus({ kind: "transcribing" });
+      else if (p.status === "low_memory_retry") setStatus({ kind: "low_memory_retry" });
       else if (p.status === "language_detected") setDetectedLanguage(p.language);
       else if (p.status === "done") {
         setStatus({ kind: "done", duration: p.duration });
@@ -510,6 +512,35 @@ export function App() {
         </div>
       )}
 
+      {status.kind === "error" && (
+        <div className="model-notice error-notice">
+          <button
+            className="model-notice-close"
+            onClick={() => setStatus({ kind: audio ? "done" : "ready", duration: audioDuration } as AppStatus)}
+            title="Dismiss"
+          >
+            <X size={14} />
+          </button>
+          <h3>Transcription failed</h3>
+          <p className="error-notice-msg">{status.message}</p>
+          <div className="model-notice-actions">
+            {audio && (
+              <button className="btn primary" onClick={handleRetranscribe} disabled={busy}>
+                <span>Retry</span>
+              </button>
+            )}
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setModelManagerOpen(true);
+              }}
+            >
+              <span>Manage models…</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark" />
@@ -720,6 +751,10 @@ function StatusBadge({ status, segments }: { status: AppStatus; segments: number
     loading_model: { label: "Loading model", icon: <Loader2 size={12} className="spin" /> },
     transcribing: {
       label: `Transcribing · ${segments} seg`,
+      icon: <Loader2 size={12} className="spin" />,
+    },
+    low_memory_retry: {
+      label: "Low VRAM · retrying leaner",
       icon: <Loader2 size={12} className="spin" />,
     },
     done: { label: `Done · ${segments} seg`, icon: <CheckCircle2 size={12} /> },

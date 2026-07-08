@@ -64,6 +64,36 @@ def set_models_dir(path: str | None) -> Path:
     return get_models_dir()
 
 
+def get_active_model() -> str | None:
+    """Last-selected Whisper model id, or None if never chosen."""
+    return _load().get("active_model") or None
+
+
+def set_active_model(model_id: str | None) -> str | None:
+    data = _load()
+    if model_id:
+        data["active_model"] = model_id
+    else:
+        data.pop("active_model", None)
+    _save(data)
+    return get_active_model()
+
+
+def get_active_language() -> str | None:
+    """Last-selected transcription language, or None if never chosen."""
+    return _load().get("active_language") or None
+
+
+def set_active_language(language: str | None) -> str | None:
+    data = _load()
+    if language:
+        data["active_language"] = language
+    else:
+        data.pop("active_language", None)
+    _save(data)
+    return get_active_language()
+
+
 def get_ollama_url() -> str:
     """Base URL of the local Ollama daemon. Defaults to the standard port."""
     from ollama_client import DEFAULT_URL

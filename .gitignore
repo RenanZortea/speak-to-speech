@@ -30,5 +30,10 @@ dist/
 *.spec.bak
 *.tsbuildinfo
 
+# makepkg output (packaging/arch/PKGBUILD)
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/*.pkg.tar.*
+
 # Personal working notes
 ROADMAP.md

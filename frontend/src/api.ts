@@ -44,6 +44,10 @@ export type CatalogModel = {
   description: string;
   default?: boolean;
   present: boolean;
+  // Present = bytes on disk. Usable = also loadable by faster-whisper (has
+  // CTranslate2 model.bin). A Transformers-format repo is present but not usable.
+  // Optional: older backends omit it — api.listModels() backfills from `present`.
+  usable?: boolean;
   size_on_disk: number;
   active: boolean;
 };
@@ -162,6 +166,7 @@ export type ModelLoadStatusEvent =
 export type TranscribeStatusEvent =
   | { status: "loading_model"; model_id?: string }
   | { status: "transcribing" }
+  | { status: "low_memory_retry" }
   | { status: "language_detected"; language: string | null }
   | { status: "done"; duration: number; language?: string | null; model_id?: string }
   | { status: "error"; error: string };
@@ -232,7 +237,10 @@ export const api = {
     return (await ready()).transcribe(path, options);
   },
   async listModels(): Promise<CatalogModel[]> {
-    return (await ready()).list_models();
+    const models = (await (await ready()).list_models()) as CatalogModel[];
+    // Defensive: an older backend won't send `usable`. Fall back to `present`
+    // so a field mismatch can't mislabel every model as unusable.
+    return models.map((m) => ({ ...m, usable: m.usable ?? m.present }));
   },
   async getLanguages(): Promise<LanguageOption[]> {
     return (await ready()).get_languages();

@@ -318,7 +318,9 @@ function ModelSection({
   onOpenModelManager: () => void;
 }) {
   const active = models.find((m) => m.id === activeModelId);
-  const downloaded = models.filter((m) => m.present);
+  // Only usable (CTranslate2) models can be selected for transcription — a
+  // present-but-unusable Transformers repo would crash the worker.
+  const selectable = models.filter((m) => m.usable);
 
   return (
     <>
@@ -328,12 +330,12 @@ function ModelSection({
         onChange={(e) => onModelChange(e.target.value)}
         disabled={busy}
       >
-        {downloaded.length === 0 && (
+        {selectable.length === 0 && (
           <option value={activeModelId} disabled>
             (no models downloaded)
           </option>
         )}
-        {downloaded.map((m) => (
+        {selectable.map((m) => (
           <option key={m.id} value={m.id}>
             {m.name}
           </option>
@@ -342,8 +344,10 @@ function ModelSection({
       {active && (
         <div className="model-meta">
           <span>{fmtSize(active.size_on_disk || active.size_bytes)}</span>
-          {active.present ? (
+          {active.usable ? (
             <span className="model-meta-tag" title="On disk">downloaded</span>
+          ) : active.present ? (
+            <span className="model-meta-tag warn" title="Not a CTranslate2 model">unsupported format</span>
           ) : (
             <span className="model-meta-tag warn" title="Not on disk yet">not downloaded</span>
           )}
