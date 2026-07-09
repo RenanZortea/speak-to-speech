@@ -402,6 +402,9 @@ export function App() {
       setPronPhonemes([]);
       setPronStatus("idle");
     }
+    setAccentResult(null);
+    setAccentStatus("idle");
+    setAccentError(null);
     setCorrections(sess.corrections ?? []);
     if (sess.language) setActiveLanguage(sess.language);
     if (sess.model_id) setActiveModelId(sess.model_id);
