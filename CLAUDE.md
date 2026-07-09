@@ -85,6 +85,12 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
   → clear / off-pronunciation / unclear-word(code-switch) / gap. See `alignment.ts`.
 - **AI corrections = same `Correction` shape** as manual; the render/map/persist pipeline is
   shared. JSON is the contract; nothing AI-specific is bundled.
+- **MediaRecorder timeline**: recordings don't zero-base — the first packet's PTS is the audio
+  pipeline's running clock (esp. WebKitGTK/GStreamer on Linux), so a short clip carries a huge
+  start offset + no container duration. Players then show `offset + length` as the duration
+  (a 1.7s clip read as 25 min) and squash the waveform. `audio_server.py`'s `/upload` fixes it
+  with a lossless `ffmpeg -c copy -avoid_negative_ts make_zero -fflags +genpts` remux
+  (best-effort; falls back to the raw upload). Whisper is unaffected (ffmpeg zero-bases on decode).
 - **Ollama VRAM coordination**: `ollama_correct` runs through the `JobLane` (can't overlap
   transcribe/pronounce), unloads our GPU model first, and asks Ollama to free its own VRAM
   after (`keep_alive=0`). Net: ≤1 big model in VRAM on the 6 GB card. Trade-off: Whisper

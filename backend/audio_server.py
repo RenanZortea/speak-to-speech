@@ -11,7 +11,9 @@ import json
 import mimetypes
 import os
 import secrets
+import shutil
 import socketserver
+import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +21,37 @@ from urllib.parse import urlsplit
 
 
 DEFAULT_RECORDINGS_DIR = Path.home() / "SpeakToSpeech" / "recordings"
+
+
+def _normalize_timeline(raw_path: Path, out_path: Path) -> None:
+    """Rewrite a recording so its timeline starts at 0 with a correct duration.
+
+    MediaRecorder (notably WebKitGTK/GStreamer on Linux) does not zero-base the
+    clip: the first packet's PTS is the audio pipeline's *running clock*, so a
+    5-second recording can carry a start offset of tens or hundreds of seconds
+    and no container Duration. Players then read `start_offset + length` as the
+    duration (e.g. a ~1.7s clip shows as 25 min), squash the waveform, and
+    misplace the cursor/seek. Whisper is unaffected (ffmpeg zero-bases on decode).
+
+    A lossless `-c copy` remux with a reset timeline fixes it with no re-encode.
+    Best-effort: if ffmpeg is missing or fails, fall back to the raw upload."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        try:
+            proc = subprocess.run(
+                [ffmpeg, "-v", "error", "-y", "-i", str(raw_path),
+                 "-c", "copy", "-avoid_negative_ts", "make_zero",
+                 "-fflags", "+genpts", str(out_path)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+            )
+            if proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 0:
+                raw_path.unlink(missing_ok=True)
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        out_path.unlink(missing_ok=True)  # drop any partial remux
+    # Fallback: keep the raw upload untouched.
+    os.replace(raw_path, out_path)
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -59,10 +92,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         save_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         out_path = save_dir / f"recording-{ts}.{ext}"
+        raw_path = save_dir / f"recording-{ts}.{ext}.raw"
 
         try:
             remaining = length
-            with open(out_path, "wb") as f:
+            with open(raw_path, "wb") as f:
                 while remaining > 0:
                     chunk = self.rfile.read(min(64 * 1024, remaining))
                     if not chunk:
@@ -70,8 +104,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     f.write(chunk)
                     remaining -= len(chunk)
         except Exception as e:
+            raw_path.unlink(missing_ok=True)
             self._send_json(500, {"error": f"write failed: {e}"})
             return
+
+        # MediaRecorder clips carry a bogus start offset + no duration; rewrite
+        # the timeline to start at 0 so the player shows the real length.
+        _normalize_timeline(raw_path, out_path)
 
         self.server_ref.set_audio(str(out_path))
         self._send_json(200, {"path": str(out_path), "url": self.server_ref.url})
