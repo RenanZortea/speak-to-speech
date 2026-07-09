@@ -38,17 +38,21 @@ os.environ["HF_HUB_CACHE"] = str(app_settings.get_models_dir())
 
 import webview
 
+from accent import AccentWorker
 from audio_server import AudioServer
 from model_manager import (
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL_ID,
+    accent_model_for_language,
     cancel_download as mm_cancel_download,
     delete_model as mm_delete_model,
     download_model as mm_download_model,
+    ensure_accent_backbone,
     gpu_info,
     has_ct2_weights,
     is_model_present,
     languages_payload,
+    list_accent_models as mm_list_accent_models,
     list_models,
 )
 from orchestration import JobLane, ResourceManager
@@ -82,6 +86,7 @@ class Api:
         self._resources = ResourceManager()
         self._worker = WhisperWorker(resource_manager=self._resources)
         self._pron = PronunciationWorker()
+        self._accent = AccentWorker()
         self._jobs = JobLane(on_state=self._on_job_state)
         self._audio = AudioServer()
         self._audio.start()
@@ -246,6 +251,56 @@ class Api:
                 self._pron.unload()
             elif not ok:
                 self._emit("pron_status", {
+                    "status": "error",
+                    "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
+                })
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True}
+
+    # ---- Accent ----
+
+    def list_accent_models(self):
+        return mm_list_accent_models()
+
+    def download_accent_model(self, model_id: str):
+        desc = next((m for m in mm_list_accent_models() if m["id"] == model_id), None)
+        def run():
+            try:
+                if desc:
+                    ensure_accent_backbone(desc["backbone"])
+            except Exception as e:
+                self._emit("accent_model_download", {"model_id": model_id, "status": "error", "error": f"backbone config download failed: {e}"})
+                return
+            mm_download_model(model_id, lambda p: self._emit("accent_model_download", p))
+        threading.Thread(target=run, daemon=True).start()
+        return {"started": True, "model_id": model_id}
+
+    def cancel_accent_download(self, model_id: str):
+        return {"cancelled": mm_cancel_download(model_id)}
+
+    def analyze_accent(self, audio_path: str, language: str):
+        desc = accent_model_for_language(language)
+        if desc is None:
+            self._emit("accent_status", {
+                "status": "error",
+                "error": f"No accent model for language '{language}'.",
+            })
+            return {"started": False}
+
+        def job():
+            self._accent.classify(
+                audio_path, desc,
+                on_done=lambda d: self._emit("accent_status", {"status": "done", **d}),
+                on_error=lambda err: self._emit("accent_status", {"status": "error", "error": err}),
+                on_status=lambda s: self._emit("accent_status", s),
+            )
+
+        def run():
+            ok = self._jobs.try_run("accent", job)
+            if ok and self._release_when_idle:
+                self._accent.unload()
+            elif not ok:
+                self._emit("accent_status", {
                     "status": "error",
                     "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
                 })

@@ -111,6 +111,23 @@ LANGUAGES: list[tuple[str, str]] = [
     ("ca", "Catalan"),
 ]
 
+# Accent-classifier models. Same download/cache machinery as Whisper models,
+# but loaded by AccentWorker (vendored XLSR + mean-pool + linear head), keyed by
+# the language whose accents they classify. `loader` is the generalization seam:
+# any future entry sharing this architecture needs only a row here.
+ACCENT_MODELS: list[dict] = [
+    {
+        "id": "bookbot/english-accent-classifier",
+        "language": "en",
+        "name": "English Accent Classifier",
+        "size_bytes": 1_300_000_000,
+        "loader": "xlsr-statpool-linear",
+        "backbone": "facebook/wav2vec2-large-xlsr-53",
+        "labels_file": "label_encoder.txt",
+        "num_labels": 16,
+    },
+]
+
 
 # ----- HF cache helpers -----
 
@@ -253,6 +270,8 @@ def list_models() -> list[dict]:
         # The pronunciation model shares this cache; it isn't a Whisper model.
         if repo_id in known or repo_id == PRON_MODEL_ID:
             continue
+        if any(a["id"] == repo_id for a in ACCENT_MODELS):
+            continue
         size = sizes[repo_id]
         org, _, name = repo_id.partition("/")
         out.append({
@@ -294,6 +313,31 @@ def languages_payload() -> list[dict]:
     return [{"code": c, "name": n} for c, n in LANGUAGES]
 
 
+def accent_model_for_language(language: str) -> Optional[dict]:
+    """The accent model whose target language matches, if any."""
+    for m in ACCENT_MODELS:
+        if m["language"] == language:
+            return m
+    return None
+
+
+def list_accent_models() -> list[dict]:
+    """ACCENT_MODELS + presence/size on disk (reuses the HF cache scan)."""
+    sizes = _scan_repo_sizes()
+
+    def present(model_id: str, expected: int) -> bool:
+        return sizes.get(model_id, 0) > max(50_000_000, expected // 2)
+
+    return [
+        {
+            **m,
+            "present": present(m["id"], m["size_bytes"]),
+            "size_on_disk": sizes.get(m["id"], 0),
+        }
+        for m in ACCENT_MODELS
+    ]
+
+
 # ----- Download with progress -----
 
 # ----- Cancellable downloads (child-process based) -----
@@ -316,6 +360,15 @@ def _hf_download_worker(model_id: str, cache_dir: str):
         snapshot_download(repo_id=model_id, cache_dir=cache_dir)
     except KeyboardInterrupt:
         pass
+
+
+def ensure_accent_backbone(backbone: str) -> None:
+    """Fetch just the backbone repo's config/preprocessor JSON (a few KB) so the
+    vendored accent loader can construct the architecture offline. The fine-tuned
+    weights come from the accent repo's wav2vec2.ckpt, so the base repo's ~1.2 GB
+    of weights are never downloaded."""
+    from huggingface_hub import snapshot_download
+    snapshot_download(repo_id=backbone, cache_dir=str(_hub_dir()), allow_patterns=["*.json"])
 
 
 def download_model(model_id: str, on_progress: Callable[[dict], None]):

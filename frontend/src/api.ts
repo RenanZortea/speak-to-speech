@@ -76,6 +76,22 @@ export type PronStatusEvent =
 
 export type PronunciationResult = { phonemes: Phoneme[]; mean_confidence: number };
 
+export type AccentProb = { label: string; prob: number };
+export type AccentResult = {
+  label: string;
+  confidence: number;
+  probs: AccentProb[];
+  model_id: string;
+};
+export type AccentModelInfo = {
+  id: string;
+  language: string;
+  name: string;
+  size_bytes: number;
+  present: boolean;
+  size_on_disk: number;
+};
+
 export type SessionSummary = {
   id: string;
   title: string;
@@ -274,6 +290,18 @@ export const api = {
   },
   async assessPronunciation(audioPath: string): Promise<{ started: boolean }> {
     return (await ready()).assess_pronunciation(audioPath);
+  },
+  async listAccentModels(): Promise<AccentModelInfo[]> {
+    return (await ready()).list_accent_models();
+  },
+  async downloadAccentModel(modelId: string): Promise<{ started: boolean; model_id: string }> {
+    return (await ready()).download_accent_model(modelId);
+  },
+  async cancelAccentDownload(modelId: string): Promise<{ cancelled: boolean }> {
+    return (await ready()).cancel_accent_download(modelId);
+  },
+  async analyzeAccent(audioPath: string, language: string): Promise<{ started: boolean }> {
+    return (await ready()).analyze_accent(audioPath, language);
   },
   async saveSession(data: SaveSessionData): Promise<SessionSummary> {
     return (await ready()).save_session(data);
