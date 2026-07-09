@@ -61,8 +61,14 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
 
 ## Conventions / gotchas (hard-won — don't re-break)
 
-- **CUDA DLLs**: `worker.py` preloads cublas/cudnn by absolute path *before* importing
-  faster_whisper. Path derived from `sys.executable` (or `sys._MEIPASS` when frozen).
+- **CUDA libs**: `worker.py` preloads cublas/cudnn by absolute path at import, *before*
+  CTranslate2's first inference — on **both** Windows and Linux. CTranslate2's own preload
+  is Windows-only and its `.so` has no RPATH to the pip `nvidia-*-cu12` wheels, so on Linux
+  with no system `cuda` package the runtime `dlopen("libcublas.so.12")` fails at the first
+  transcribe (silent "Library ... not found"). Win path derived from `sys.executable` (or
+  `sys._MEIPASS` when frozen); Linux path from `sysconfig purelib / nvidia` (override both
+  via `WHISPER_NVIDIA_BASE`). Preload is best-effort — a system CUDA / `LD_LIBRARY_PATH`
+  already satisfies the loader.
 - **pywebview Api introspection**: any non-underscore attribute on `Api` gets walked by the
   JS-bridge generator. Keep helper instances **underscore-prefixed** (`self._worker`,
   `self._audio`, …) or it recurses into them (e.g. a `Path`) and breaks the whole bridge.

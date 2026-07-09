@@ -118,6 +118,23 @@ Found while actually using the app on Arch after v0.6.0:
 
 ## Findings log
 
+- **2026-07-09** — Two stacked GPU failures on Renan's Arch box after a Jul-8
+  `pacman -Syu`; app showed a silent transcribe error + no telemetry.
+  1. **NVML telemetry** → `LibRmVersionMismatch`: userspace nvidia driver
+     upgraded `610.43.02 → .03` but the loaded kernel module was still `.02`
+     (same error `nvidia-smi` threw). **Reboot** realigned them. Not an app bug.
+  2. **Transcription** → `RuntimeError: Library libcublas.so.12 is not found or
+     cannot be loaded`, thrown at `model.encode` (weights load fine; first GPU
+     compute needs cuBLAS). Root cause: the earlier claim that CTranslate2 finds
+     the pip `nvidia-*-cu12` wheel `.so`s "via RPATH/RUNPATH baked into the
+     wheel" was **wrong** — `libctranslate2*.so` has no RPATH, and ctranslate2's
+     `__init__.py` preload is `win32`-only. It worked pre-Jul-8 only because a
+     system CUDA lib satisfied the loader; the `-Syu` removed/changed it (no
+     `cuda` pkg installed, cuBLAS not in ldconfig). Confirmed the fix by
+     preloading the wheel's `libcublas`/`libcudnn` (`ctypes.CDLL`, `RTLD_GLOBAL`)
+     — added a `sys.platform == "linux"` branch to `worker.py` mirroring the
+     Windows one. Both venvs (`.venv` and `/opt`) reproduced identically.
+
 - **2026-07-02** — Audited `backend/` for platform-specific code.
   - `worker.py:25-58`: hard Windows-only. `ctypes.WinDLL` doesn't exist on
     Linux (AttributeError), `os.add_dll_directory` likewise. This is the *only*

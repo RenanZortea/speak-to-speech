@@ -1,10 +1,13 @@
 """
 Whisper worker. Holds the model in memory across transcriptions.
 
-CUDA DLL setup MUST run before importing faster_whisper, or CTranslate2
-fails to find cublas/cudnn on Windows. This preload is Windows-only: on
-Linux, the nvidia-cu12 wheels' .so files are found via the standard dynamic
-linker (RPATH/RUNPATH baked into the wheel), so no equivalent is needed.
+CUDA lib setup MUST run before CTranslate2's first inference, or it fails to
+find cublas/cudnn. Both Windows and Linux need this: CTranslate2's own preload
+logic (in ctranslate2/__init__.py) is Windows-only, and its shared object has
+no RPATH/RUNPATH pointing at the pip nvidia-*-cu12 wheels. With no system CUDA
+install (e.g. Arch without the `cuda` package), the runtime dlopen of
+libcublas.so.12 fails at the first transcribe. We preload the wheel's libs by
+absolute path here so they're already resident when CTranslate2 asks.
 
 Why preload via ctypes.WinDLL with absolute paths instead of just
 os.add_dll_directory? In a long-running app (especially after WebView2 /
@@ -60,6 +63,38 @@ if sys.platform == "win32":
                 _loaded_dlls.append(ctypes.WinDLL(str(_p)))
             except OSError:
                 pass  # some cudnn submodules may not be needed; let faster-whisper try later
+
+elif sys.platform == "linux":
+    # The pip nvidia-cublas-cu12 / nvidia-cudnn-cu12 wheels ship libcublas.so.12
+    # and libcudnn*.so.9 under site-packages/nvidia/*/lib, but nothing adds those
+    # dirs to the dynamic linker path (ctranslate2's preload is win32-only; its
+    # .so carries no RPATH). Without a system CUDA install, CTranslate2's runtime
+    # dlopen("libcublas.so.12") fails at the first encode. Preload by absolute
+    # path (RTLD_GLOBAL) so the sonames are already resident when it asks.
+    # Best-effort: if a system CUDA install or LD_LIBRARY_PATH already satisfies
+    # the loader, these are harmless no-ops. Override the base via
+    # WHISPER_NVIDIA_BASE (points at the dir containing cublas/ and cudnn/).
+    import sysconfig
+
+    if "WHISPER_NVIDIA_BASE" in os.environ:
+        _NVIDIA_BASE = Path(os.environ["WHISPER_NVIDIA_BASE"])
+    else:
+        _NVIDIA_BASE = Path(sysconfig.get_paths()["purelib"]) / "nvidia"
+
+    # cublasLt before cublas (cublas depends on it); cudnn last (best-effort — not
+    # all models need it, and its own $ORIGIN RPATH resolves its sub-libraries).
+    _PRELOAD = [
+        _NVIDIA_BASE / "cublas" / "lib" / "libcublasLt.so.12",
+        _NVIDIA_BASE / "cublas" / "lib" / "libcublas.so.12",
+        _NVIDIA_BASE / "cudnn" / "lib" / "libcudnn.so.9",
+    ]
+    _loaded_sos = []
+    for _p in _PRELOAD:
+        if _p.exists():
+            try:
+                _loaded_sos.append(ctypes.CDLL(str(_p), mode=ctypes.RTLD_GLOBAL))
+            except OSError:
+                pass  # let CTranslate2 fall back to the system loader
 
 # Host RAM to keep free on top of the model file itself (CUDA runtime + Python).
 # Loading a CT2 model reads its whole model.bin into RAM before uploading to VRAM;
