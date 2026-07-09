@@ -10,6 +10,8 @@ import {
 import {
   api,
   on,
+  type AccentModelInfo,
+  type AccentResult,
   type CatalogModel,
   type GpuInfo,
   type LanguageOption,
@@ -33,6 +35,7 @@ import {
 } from "./aiCorrect";
 import { type Correction, correctedSentenceAt, newCorrectionId } from "./corrections";
 import { buildTranscriptDoc } from "./transcriptDoc";
+import { AccentBar, type AccentStatus } from "./AccentBar";
 import { AudioBar } from "./AudioBar";
 import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
 import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
@@ -94,6 +97,13 @@ export function App() {
     busy: false,
     job: null,
   });
+
+  // Accent state — on-demand, language-gated (mirrors pronunciation state above).
+  const [accentModels, setAccentModels] = useState<AccentModelInfo[]>([]);
+  const [accentStatus, setAccentStatus] = useState<AccentStatus>("idle");
+  const [accentResult, setAccentResult] = useState<AccentResult | null>(null);
+  const [accentError, setAccentError] = useState<string | null>(null);
+  const [accentDownloadBytes, setAccentDownloadBytes] = useState<number | null>(null);
 
   // Sessions (persistence)
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -159,6 +169,7 @@ export function App() {
     api.getServerUrl().then(setServerUrl);
     api.getLanguages().then(setLanguages);
     api.checkPronModel().then((r) => setPronModelPresent(r.present));
+    void api.listAccentModels().then(setAccentModels);
     void refreshModels();
     void refreshSessions();
 
@@ -219,6 +230,24 @@ export function App() {
         setPronStatus(p.status); // loading_model | converting | analyzing
       }
     });
+    const offAccent = on("accent_status", (p: any) => {
+      if (p.status === "done") {
+        setAccentResult(p as AccentResult);
+        setAccentStatus("done");
+      } else if (p.status === "error") {
+        setAccentError(p.error);
+        setAccentStatus("error");
+      } else {
+        setAccentStatus(p.status);
+      }
+    });
+    const offAccentDl = on("accent_model_download", (p: any) => {
+      if (p.status === "downloading") setAccentDownloadBytes(p.bytes);
+      else {
+        setAccentDownloadBytes(null);
+        if (p.status === "complete") void api.listAccentModels().then(setAccentModels);
+      }
+    });
     const offJob = on("job_state", (p: { busy: boolean; job: string | null }) => {
       setJobState(p);
     });
@@ -262,7 +291,8 @@ export function App() {
     });
 
     return () => {
-      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offJob(); offRes(); offUpd(); offAi();
+      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offAccent(); offAccentDl();
+      offJob(); offRes(); offUpd(); offAi();
     };
   }, [refreshModels, refreshSessions]);
 
@@ -271,10 +301,13 @@ export function App() {
     setSegments([]);
     setCurrentTime(0);
     setDetectedLanguage(null);
-    // New audio invalidates any prior pronunciation analysis, corrections, session.
+    // New audio invalidates any prior pronunciation/accent analysis, corrections, session.
     setPronPhonemes([]);
     setPronStatus("idle");
     setPronError(null);
+    setAccentResult(null);
+    setAccentStatus("idle");
+    setAccentError(null);
     setCorrections([]);
     setAiGen({ status: "idle" });
     setActiveSessionId(null);
@@ -302,6 +335,23 @@ export function App() {
 
   const handleCancelPronDownload = () => {
     void api.cancelPronDownload();
+  };
+
+  const accentModel = accentModels.find((m) => m.language === activeLanguage) ?? null;
+
+  const handleAnalyzeAccent = () => {
+    if (!audio || !accentModel) return;
+    setAccentError(null);
+    setAccentStatus("loading_model");
+    void api.analyzeAccent(audio.path, activeLanguage);
+  };
+  const handleDownloadAccent = () => {
+    if (!accentModel) return;
+    void api.downloadAccentModel(accentModel.id);
+  };
+  const handleCancelAccentDownload = () => {
+    if (!accentModel) return;
+    void api.cancelAccentDownload(accentModel.id);
   };
 
   // ---- Sessions ----
@@ -632,6 +682,19 @@ export function App() {
             onAnalyze={handleAnalyzePronunciation}
             onDownload={handleDownloadPronModel}
             onCancelDownload={handleCancelPronDownload}
+          />
+
+          <AccentBar
+            hasAudio={!!audio}
+            supported={!!accentModel}
+            modelPresent={accentModel ? accentModel.present : null}
+            downloadBytes={accentDownloadBytes}
+            status={accentStatus}
+            result={accentResult}
+            error={accentError}
+            onAnalyze={handleAnalyzeAccent}
+            onDownload={handleDownloadAccent}
+            onCancelDownload={handleCancelAccentDownload}
           />
 
           <CodeTranscript
