@@ -362,6 +362,15 @@ def _hf_download_worker(model_id: str, cache_dir: str):
         pass
 
 
+def ensure_accent_backbone(backbone: str) -> None:
+    """Fetch just the backbone repo's config/preprocessor JSON (a few KB) so the
+    vendored accent loader can construct the architecture offline. The fine-tuned
+    weights come from the accent repo's wav2vec2.ckpt, so the base repo's ~1.2 GB
+    of weights are never downloaded."""
+    from huggingface_hub import snapshot_download
+    snapshot_download(repo_id=backbone, cache_dir=str(_hub_dir()), allow_patterns=["*.json"])
+
+
 def download_model(model_id: str, on_progress: Callable[[dict], None]):
     """
     Download a model from HF Hub in a child process; emit periodic progress.

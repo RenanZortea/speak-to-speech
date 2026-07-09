@@ -68,7 +68,10 @@ class AccentClassifier:
         with torch.no_grad():
             hidden = self.backbone(input_values, attention_mask=attention_mask).last_hidden_state  # [B,T,H]
             if self.output_norm:
-                hidden = torch.nn.functional.layer_norm(hidden, (hidden.shape[-1],))
+                # SpeechBrain's HuggingFaceWav2Vec2(output_norm=True) normalizes over
+                # the full tensor shape, not just the hidden dim. We run one clip at a
+                # time (batch=1). Parity confirmed against the real ckpt at validate time.
+                hidden = torch.nn.functional.layer_norm(hidden, hidden.shape)
             if attention_mask is not None:
                 mask = attention_mask.unsqueeze(-1).to(hidden.dtype)  # [B,T,1]
                 pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
@@ -80,16 +83,21 @@ class AccentClassifier:
 def load_accent_classifier(model_id: str, backbone: str, cache_dir: str, num_labels: int):
     """Build the vendored classifier from the downloaded snapshot, fully offline."""
     import torch
-    from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Model
+    from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2Model
 
     snap = _resolve_snapshot(model_id, cache_dir)
 
     fe = Wav2Vec2FeatureExtractor.from_pretrained(
         backbone, local_files_only=True, cache_dir=cache_dir
     )
-    bb = Wav2Vec2Model.from_pretrained(
+    # Build the backbone architecture from config only. Do NOT load the base repo's
+    # pretrained weights: they'd be a wasted ~1.2 GB download and are immediately
+    # overridden by the fine-tuned wav2vec2.ckpt below. Only the base repo's tiny
+    # config.json / preprocessor_config.json need to be cached (fetched at download).
+    config = Wav2Vec2Config.from_pretrained(
         backbone, local_files_only=True, cache_dir=cache_dir
     )
+    bb = Wav2Vec2Model(config)
 
     # Fine-tuned backbone weights (SpeechBrain ckpt) override the base xlsr weights.
     # weights_only=True: these are pure tensor state dicts — never unpickle repo code

@@ -47,6 +47,7 @@ from model_manager import (
     cancel_download as mm_cancel_download,
     delete_model as mm_delete_model,
     download_model as mm_download_model,
+    ensure_accent_backbone,
     gpu_info,
     has_ct2_weights,
     is_model_present,
@@ -262,7 +263,14 @@ class Api:
         return mm_list_accent_models()
 
     def download_accent_model(self, model_id: str):
+        desc = next((m for m in mm_list_accent_models() if m["id"] == model_id), None)
         def run():
+            try:
+                if desc:
+                    ensure_accent_backbone(desc["backbone"])
+            except Exception as e:
+                self._emit("accent_model_download", {"model_id": model_id, "status": "error", "error": f"backbone config download failed: {e}"})
+                return
             mm_download_model(model_id, lambda p: self._emit("accent_model_download", p))
         threading.Thread(target=run, daemon=True).start()
         return {"started": True, "model_id": model_id}

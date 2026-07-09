@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import torch  # noqa: E402
 from app_settings import get_models_dir  # noqa: E402
 from accent_model import _resolve_snapshot, load_accent_classifier, remap_speechbrain_wav2vec2  # noqa: E402
-from transformers import Wav2Vec2Model  # noqa: E402
+from transformers import Wav2Vec2Config, Wav2Vec2Model  # noqa: E402
 
 MODEL_ID = "bookbot/english-accent-classifier"
 BACKBONE = "facebook/wav2vec2-large-xlsr-53"
@@ -32,7 +32,7 @@ def inspect_keys(cache_dir: str):
     print(f"wav2vec2.ckpt: {len(ck)} keys; sample:")
     for k in ck[:8]:
         print("   ", k)
-    ref = set(Wav2Vec2Model.from_pretrained(BACKBONE, local_files_only=True, cache_dir=cache_dir).state_dict())
+    ref = set(Wav2Vec2Model(Wav2Vec2Config.from_pretrained(BACKBONE, local_files_only=True, cache_dir=cache_dir)).state_dict())
     remapped = set(remap_speechbrain_wav2vec2(ckpt))
     print(f"transformers keys: {len(ref)}; remapped matches: {len(remapped & ref)}/{len(ref)}")
     print("unmatched remapped (first 8):", list(remapped - ref)[:8])
