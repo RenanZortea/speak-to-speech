@@ -17,10 +17,14 @@ from pathlib import Path
 
 def parse_label_encoder(path: str) -> list[str]:
     """SpeechBrain CategoricalEncoder dump. Lines look like:  'us' => 0
-    Returns labels ordered by index."""
+    Returns labels ordered by index. A `====` separator line ends the label
+    section; below it live metadata entries like 'starting_index' => 0 that
+    would otherwise collide with real indices and shift every label by one."""
     pairs: list[tuple[int, str]] = []
     line_re = re.compile(r"^'(?P<label>.+)'\s*=>\s*(?P<idx>\d+)\s*$")
     for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        if raw.startswith("="):
+            break
         m = line_re.match(raw.strip())
         if m:
             pairs.append((int(m.group("idx")), m.group("label")))

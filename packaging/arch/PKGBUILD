@@ -7,7 +7,7 @@
 #
 # Usage: cd packaging/arch && makepkg -si
 pkgname=speaktospeech
-pkgver=0.7.1
+pkgver=0.7.2
 pkgrel=1
 pkgdesc="Local speech-to-text for language learning (Hebrew-first)"
 arch=('x86_64')
