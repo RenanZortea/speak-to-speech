@@ -73,7 +73,15 @@ class AccentClassifier:
                 # time (batch=1). Parity confirmed against the real ckpt at validate time.
                 hidden = torch.nn.functional.layer_norm(hidden, hidden.shape)
             if attention_mask is not None:
-                mask = attention_mask.unsqueeze(-1).to(hidden.dtype)  # [B,T,1]
+                # attention_mask from the feature extractor is at raw-sample
+                # resolution (one entry per input sample). hidden is downsampled
+                # by the conv feature encoder (~320x), so we must convert the mask
+                # to frame resolution before pooling, or the elementwise multiply
+                # broadcasts and fails (T frames vs. raw-sample length).
+                frame_mask = self.backbone._get_feature_vector_attention_mask(
+                    hidden.shape[1], attention_mask
+                )
+                mask = frame_mask.unsqueeze(-1).to(hidden.dtype)  # [B,T,1]
                 pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
             else:
                 pooled = hidden.mean(dim=1)
