@@ -9,7 +9,7 @@ export class VowelSynth {
   private master: GainNode | null = null;
   private formants: SynthFormants = { f1: 500, f2: 1500, f3: 2500 };
   private pitch = 120;
-  private volume = 0.7;
+  private volume = 1;
 
   async start(): Promise<void> {
     if (this.oscillator) return;
