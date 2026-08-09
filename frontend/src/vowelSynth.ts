@@ -5,10 +5,11 @@ export class VowelSynth {
   private oscillator: OscillatorNode | null = null;
   private filters: BiquadFilterNode[] = [];
   private makeup: GainNode | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
   private master: GainNode | null = null;
   private formants: SynthFormants = { f1: 500, f2: 1500, f3: 2500 };
   private pitch = 120;
-  private volume = 0.25;
+  private volume = 0.7;
 
   async start(): Promise<void> {
     if (this.oscillator) return;
@@ -28,13 +29,21 @@ export class VowelSynth {
       return filter;
     });
     this.makeup = context.createGain();
-    this.makeup.gain.value = 12;
+    // Three cascaded narrow bandpasses attenuate almost all of the source.
+    // Restore that lost level, then limit the peaks before the user volume.
+    this.makeup.gain.value = 60;
+    this.limiter = context.createDynamicsCompressor();
+    this.limiter.threshold.value = -6;
+    this.limiter.knee.value = 6;
+    this.limiter.ratio.value = 12;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.1;
     this.master = context.createGain();
     this.master.gain.setValueAtTime(0, context.currentTime);
     oscillator.connect(this.filters[0]);
     this.filters[0].connect(this.filters[1]);
     this.filters[1].connect(this.filters[2]);
-    this.filters[2].connect(this.makeup).connect(this.master).connect(context.destination);
+    this.filters[2].connect(this.makeup).connect(this.limiter).connect(this.master).connect(context.destination);
     oscillator.start();
     this.master.gain.setTargetAtTime(this.volume, context.currentTime, 0.007);
     this.oscillator = oscillator;
@@ -50,6 +59,7 @@ export class VowelSynth {
     this.filters = [];
     this.master = null;
     this.makeup = null;
+    this.limiter = null;
   }
 
   setFormants(formants: SynthFormants): void {

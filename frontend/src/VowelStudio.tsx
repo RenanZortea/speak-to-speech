@@ -11,7 +11,7 @@ export function VowelStudio() {
   const [sex, setSex] = useState<VoiceSex>("m");
   const [formants, setFormants] = useState({ f1: 500, f2: 1500, f3: 2500 });
   const [pitch, setPitch] = useState(120);
-  const [volume, setVolume] = useState(0.25);
+  const [volume, setVolume] = useState(0.7);
   const [target, setTarget] = useState<VowelReference | null>(null);
   const [live, setLive] = useState<TrackedFormants | null>(null);
   const [micError, setMicError] = useState("");
@@ -65,9 +65,9 @@ export function VowelStudio() {
         onTarget={(vowel) => { setTarget(vowel); setFormants({ f1: vowel.f1, f2: vowel.f2, f3: vowel.f3 }); }} />
       <aside className="vowel-controls">
         <h2>{mode === "explore" ? <><Volume2 size={18}/> Vowel synth</> : <><Mic size={18}/> Match the target</>}</h2>
+        <Slider label="Volume" value={volume * 100} min={0} max={100} step={1} unit="%" onChange={(value) => setVolume(value / 100)}/>
         {mode === "practice" && <div className={`practice-readout ${close ? "close" : ""}`}><strong>{target ? `/${target.ipa}/ ${target.keyword ?? ""}` : "Choose a vowel on the chart"}</strong>{target && <span>Hold Space to hear · release to speak</span>}{delta && <code>ΔF1 {signed(delta.f1)} Hz<br/>ΔF2 {signed(delta.f2)} Hz</code>}{micError && <span className="vowel-error">Mic: {micError}</span>}</div>}
         <Slider label="Pitch" value={pitch} min={70} max={260} unit="Hz" onChange={setPitch}/>
-        <Slider label="Volume" value={volume} min={0} max={0.6} step={0.01} onChange={setVolume}/>
         <Slider label="F1" value={formants.f1} min={200} max={1100} unit="Hz" onChange={(f1) => setFormants((v) => ({...v, f1}))}/>
         <Slider label="F2" value={formants.f2} min={600} max={3000} unit="Hz" onChange={(f2) => setFormants((v) => ({...v, f2}))}/>
         <Slider label="F3" value={formants.f3} min={1500} max={3800} unit="Hz" onChange={(f3) => setFormants((v) => ({...v, f3}))}/>
