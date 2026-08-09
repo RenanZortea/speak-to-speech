@@ -7,6 +7,8 @@ describe("vowel reference data", () => {
     expect(VOWEL_DATA.en.f).toHaveLength(12);
     expect(VOWEL_DATA.he.m).toHaveLength(5);
     expect(VOWEL_DATA.he.f).toHaveLength(5);
+    expect(VOWEL_DATA["pt-BR"].m).toHaveLength(7);
+    expect(VOWEL_DATA["pt-BR"].f).toHaveLength(7);
     for (const language of Object.values(VOWEL_DATA)) for (const group of Object.values(language)) for (const vowel of group) {
       expect(vowel.f1).toBeGreaterThan(200);
       expect(vowel.f1).toBeLessThan(vowel.f2);

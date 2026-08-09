@@ -55,7 +55,7 @@ export function VowelStudio() {
   return <div className="vowel-studio">
     <div className="vowel-toolbar">
       <div className="segmented"><button className={mode === "explore" ? "active" : ""} onClick={() => setMode("explore")}>Explore</button><button className={mode === "practice" ? "active" : ""} onClick={() => setMode("practice")}>Practice</button></div>
-      <label>Overlay <select value={language} onChange={(e) => { setLanguage(e.target.value as VowelLanguage); setTarget(null); }}><option value="en">General American English</option><option value="he">Modern Israeli Hebrew</option></select></label>
+      <label>Overlay <select value={language} onChange={(e) => { setLanguage(e.target.value as VowelLanguage); setTarget(null); }}><option value="en">General American English</option><option value="he">Modern Israeli Hebrew</option><option value="pt-BR">Brazilian Portuguese</option></select></label>
       <div className="segmented"><button className={sex === "m" ? "active" : ""} onClick={() => { setSex("m"); setTarget(null); }}>♂</button><button className={sex === "f" ? "active" : ""} onClick={() => { setSex("f"); setTarget(null); }}>♀</button></div>
     </div>
     <div className="vowel-workspace">
@@ -72,6 +72,7 @@ export function VowelStudio() {
         <Slider label="F2" value={formants.f2} min={600} max={3000} unit="Hz" onChange={(f2) => setFormants((v) => ({...v, f2}))}/>
         <Slider label="F3" value={formants.f3} min={1500} max={3800} unit="Hz" onChange={(f3) => setFormants((v) => ({...v, f3}))}/>
         {language === "he" && <p className="vowel-caveat">Hebrew targets are based on 6 speakers per group and isolated vowels; connected speech is usually more central.</p>}
+        {language === "pt-BR" && <p className="vowel-caveat">Brazilian Portuguese targets are based on sustained vowels from 23 speakers per group; connected speech varies by stress and dialect.</p>}
       </aside>
     </div>
   </div>;
