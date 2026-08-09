@@ -40,6 +40,7 @@ import { ResourceFooter } from "./ResourceFooter";
 import { SessionsRail } from "./SessionsRail";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
+import { VowelStudio } from "./VowelStudio";
 
 type AppStatus =
   | { kind: "checking" }
@@ -53,6 +54,7 @@ type AppStatus =
   | { kind: "error"; message: string };
 
 export function App() {
+  const [mainView, setMainView] = useState<"transcript" | "vowels">("transcript");
   const [status, setStatus] = useState<AppStatus>({ kind: "checking" });
   const [modelNoticeDismissed, setModelNoticeDismissed] = useState(false);
   const [gpu, setGpu] = useState<GpuInfo | null>(null);
@@ -509,26 +511,31 @@ export function App() {
         )}
 
         <main className="main">
-          <AudioBar
-            url={audio?.url ?? null}
-            segments={segments}
-            currentTime={currentTime}
-            onTimeChange={setCurrentTime}
-            registerSeek={registerSeek}
-            hasCorrections={corrections.length > 0}
-            correctionView={correctionView}
-            onCorrectionViewChange={setCorrectionView}
-          />
-
-          <CodeTranscript
-            segments={segments}
-            corrections={corrections}
-            view={correctionView}
-            seekInCorrected={seekInCorrected}
-            currentTime={currentTime}
-            onSeek={handleSeek}
-            onRequestContextMenu={handleRequestContextMenu}
-          />
+          <nav className="tab-bar" aria-label="Main views">
+            <button className={`tab ${mainView === "transcript" ? "active" : ""}`} onClick={() => setMainView("transcript")}>Transcript</button>
+            <button className={`tab ${mainView === "vowels" ? "active" : ""}`} onClick={() => setMainView("vowels")}>Vowels</button>
+          </nav>
+          {mainView === "transcript" ? <>
+            <AudioBar
+              url={audio?.url ?? null}
+              segments={segments}
+              currentTime={currentTime}
+              onTimeChange={setCurrentTime}
+              registerSeek={registerSeek}
+              hasCorrections={corrections.length > 0}
+              correctionView={correctionView}
+              onCorrectionViewChange={setCorrectionView}
+            />
+            <CodeTranscript
+              segments={segments}
+              corrections={corrections}
+              view={correctionView}
+              seekInCorrected={seekInCorrected}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+              onRequestContextMenu={handleRequestContextMenu}
+            />
+          </> : <VowelStudio />}
         </main>
       </div>
 
