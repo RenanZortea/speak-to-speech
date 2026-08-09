@@ -3,6 +3,7 @@ import WaveSurfer from "wavesurfer.js";
 import { Pause, Play, Repeat, Volume1, Volume2, VolumeX } from "lucide-react";
 import { Waveform } from "./Waveform";
 import type { Segment } from "./api";
+import type { CorrectionView } from "./CodeTranscript";
 
 interface Props {
   url: string | null;
@@ -11,11 +12,24 @@ interface Props {
   onTimeChange: (t: number) => void;
   /** Callback registered by parent; parent uses this to seek when a transcript segment is clicked. */
   registerSeek: (fn: ((t: number) => void) | null) => void;
+  /** Corrected/Original toggle — only rendered once the transcript has corrections. */
+  hasCorrections: boolean;
+  correctionView: CorrectionView;
+  onCorrectionViewChange: (v: CorrectionView) => void;
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
 
-export function AudioBar({ url, segments, currentTime, onTimeChange, registerSeek }: Props) {
+export function AudioBar({
+  url,
+  segments,
+  currentTime,
+  onTimeChange,
+  registerSeek,
+  hasCorrections,
+  correctionView,
+  onCorrectionViewChange,
+}: Props) {
   const wsRef = useRef<WaveSurfer | null>(null);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -165,6 +179,23 @@ export function AudioBar({ url, segments, currentTime, onTimeChange, registerSee
       >
         <Repeat size={16} />
       </button>
+
+      {hasCorrections && (
+        <div className="corr-toggle">
+          <button
+            className={correctionView === "corrected" ? "active" : ""}
+            onClick={() => onCorrectionViewChange("corrected")}
+          >
+            Corrected
+          </button>
+          <button
+            className={correctionView === "original" ? "active" : ""}
+            onClick={() => onCorrectionViewChange("original")}
+          >
+            Original
+          </button>
+        </div>
+      )}
     </div>
   );
 }

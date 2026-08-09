@@ -186,3 +186,13 @@ Found while actually using the app on Arch after v0.6.0:
     from *inside* an agentic coding session, not a real Linux-port issue —
     needs confirmation by running `.venv/bin/python backend/main.py --dev`
     from the user's own terminal (with `npm run dev` in a second terminal).
+
+- **2026-08-09** — Pronunciation and accent analysis were removed from the app
+  entirely (see the commit that deletes `backend/pronunciation.py`,
+  `backend/accent*.py`, `frontend/src/PronunciationBar.tsx`, `AccentBar.tsx`,
+  `alignment.ts`). The venv notes above are now over-specified: **`torch`,
+  `transformers` and `soundfile` are no longer needed** — they were only ever
+  pulled in for the wav2vec2 phoneme/accent models. A fresh Linux venv needs
+  only `backend/requirements.txt` + `faster-whisper`/`ctranslate2`/the
+  `nvidia-*-cu12` wheels + `pycairo`/`PyGObject`. Everything else in the entries
+  above still holds; they're kept as-is as a record of the port.

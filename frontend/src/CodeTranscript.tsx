@@ -14,26 +14,18 @@ import {
 } from "@codemirror/view";
 import type { Segment } from "./api";
 import {
-  CATEGORY_HINTS,
-  CATEGORY_LABELS,
-  categoryColor,
-  type AlignedWord,
-  type Alignment,
-} from "./alignment";
-import {
   CATEGORY_COLOR,
   CATEGORY_LABEL,
   correctedSentenceAt,
   type Correction,
 } from "./corrections";
-import { buildTranscriptDoc } from "./transcriptDoc";
+import { buildTranscriptDoc, type DocWord } from "./transcriptDoc";
 import type { MenuTarget } from "./CorrectionMenu";
 
 export type CorrectionView = "corrected" | "original";
 
 interface Props {
   segments: Segment[];
-  alignment: Alignment | null;
   corrections: Correction[];
   view: CorrectionView;
   seekInCorrected: boolean;
@@ -42,16 +34,6 @@ interface Props {
   onRequestContextMenu: (t: MenuTarget) => void;
 }
 
-type WordPos = {
-  from: number;
-  markFrom: number;
-  to: number;
-  start: number;
-  end: number;
-  aw: AlignedWord | null;
-};
-
-const setBase = StateEffect.define<DecorationSet>();
 const setActive = StateEffect.define<DecorationSet>();
 const setCorr = StateEffect.define<DecorationSet>();
 
@@ -67,7 +49,6 @@ function makeField(effectType: StateEffectType<DecorationSet>) {
   });
 }
 
-const baseField = makeField(setBase);
 const activeField = makeField(setActive);
 const corrField = makeField(setCorr);
 
@@ -113,24 +94,6 @@ class SuggestionWidget extends WidgetType {
   }
 }
 
-function buildDoc(segments: Segment[], alignment: Alignment | null) {
-  const { text, words } = buildTranscriptDoc(segments);
-  const wp: WordPos[] = words.map((w, i) => ({ ...w, aw: alignment?.words[i] ?? null }));
-  return { text, words: wp };
-}
-
-// Pronunciation coloring belongs to the original speech; suppress it whenever the
-// corrected overlay is actually showing (corrected view *and* corrections exist).
-function baseDecorations(words: WordPos[], enabled: boolean): DecorationSet {
-  if (!enabled) return Decoration.none;
-  const ranges = words
-    .filter((w) => w.to > w.markFrom)
-    .map((w) =>
-      Decoration.mark({ class: `cm-w cm-w-${w.aw?.category ?? "unknown"}` }).range(w.markFrom, w.to),
-    );
-  return Decoration.set(ranges, true);
-}
-
 // Correction layer depends on the view: corrected = replace widgets; original = tint marks.
 function correctionDecorations(
   corrections: Correction[],
@@ -160,56 +123,12 @@ function correctionDecorations(
   return Decoration.set(ranges, true);
 }
 
-// The corrected overlay only differs from the original when there's something to
-// correct; with no corrections the two views are identical, so pronunciation stays on.
-function pronOn(view: CorrectionView, hasCorrections: boolean): boolean {
+// True when the doc on screen is the verbatim original — i.e. word char offsets
+// still line up with the audio timings. In the corrected view with corrections
+// applied, replace widgets shift the visible text, so word-anchored behaviour
+// (click-to-seek, active-word highlight) can't be trusted.
+function showingOriginal(view: CorrectionView, hasCorrections: boolean): boolean {
   return view === "original" || !hasCorrections;
-}
-
-function phonTier(c: number): "high" | "med" | "low" {
-  if (c >= 0.7) return "high";
-  if (c >= 0.4) return "med";
-  return "low";
-}
-
-function renderPronTip(aw: AlignedWord): HTMLElement {
-  const root = document.createElement("div");
-  root.className = "cm-pron-tip";
-  root.dir = "ltr";
-  const head = document.createElement("div");
-  head.className = "cm-tip-head";
-  const cat = document.createElement("span");
-  cat.className = "cm-tip-cat";
-  cat.style.color = categoryColor(aw.category);
-  cat.textContent = CATEGORY_LABELS[aw.category];
-  const confs = document.createElement("span");
-  confs.className = "cm-tip-confs";
-  confs.textContent =
-    `word ${Math.round(aw.lexicalConf * 100)}%` +
-    (aw.acousticConf !== null ? ` · sound ${Math.round(aw.acousticConf * 100)}%` : "");
-  head.append(cat, confs);
-  const hint = document.createElement("p");
-  hint.className = "cm-tip-hint";
-  hint.textContent = CATEGORY_HINTS[aw.category];
-  root.append(head, hint);
-  if (aw.phonemes.length > 0) {
-    const strip = document.createElement("div");
-    strip.className = "cm-tip-phonemes";
-    for (const p of aw.phonemes) {
-      const chip = document.createElement("span");
-      chip.className = `cm-tip-ph conf-${phonTier(p.confidence)}`;
-      const sym = document.createElement("span");
-      sym.className = "cm-tip-ph-sym";
-      sym.textContent = p.symbol;
-      const cf = document.createElement("span");
-      cf.className = "cm-tip-ph-conf";
-      cf.textContent = String(Math.round(p.confidence * 100));
-      chip.append(sym, cf);
-      strip.append(chip);
-    }
-    root.append(strip);
-  }
-  return root;
 }
 
 function renderCorrTip(
@@ -290,7 +209,6 @@ function copyButton(label: string, text: string): HTMLButtonElement {
 
 export function CodeTranscript({
   segments,
-  alignment,
   corrections,
   view,
   seekInCorrected,
@@ -300,7 +218,7 @@ export function CodeTranscript({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const wordsRef = useRef<WordPos[]>([]);
+  const wordsRef = useRef<DocWord[]>([]);
   const correctionsRef = useRef<Correction[]>(corrections);
   const modeRef = useRef<CorrectionView>(view);
   const seekInCorrectedRef = useRef(seekInCorrected);
@@ -334,14 +252,6 @@ export function CodeTranscript({
             create: () => ({ dom: renderCorrTip(c, modeRef.current, sentence) }),
           };
         }
-        // Pronunciation/phoneme tips are acoustic analysis of the original speech —
-        // meaningless on corrected text, so hidden while the corrected overlay shows.
-        if (!pronOn(modeRef.current, correctionsRef.current.length > 0)) return null;
-        const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
-        if (w && w.aw && w.aw.phonemes.length > 0) {
-          const aw = w.aw;
-          return { pos: w.markFrom, end: w.to, above: true, create: () => ({ dom: renderPronTip(aw) }) };
-        }
         return null;
       },
       { hoverTime: 200 },
@@ -351,7 +261,6 @@ export function CodeTranscript({
       state: EditorState.create({
         doc: "",
         extensions: [
-          baseField,
           corrField,
           activeField,
           tip,
@@ -363,7 +272,7 @@ export function CodeTranscript({
             mousedown: (e, v) => {
               if (e.button !== 0) return false;
               if (
-                !pronOn(modeRef.current, correctionsRef.current.length > 0) &&
+                !showingOriginal(modeRef.current, correctionsRef.current.length > 0) &&
                 !seekInCorrectedRef.current
               )
                 return false;
@@ -423,29 +332,23 @@ export function CodeTranscript({
     };
   }, []);
 
-  // Rebuild document + base decorations on transcript/alignment change.
+  // Rebuild the document whenever the transcript changes.
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
-    const { text, words } = buildDoc(segments, alignment);
+    const { text, words } = buildTranscriptDoc(segments);
     wordsRef.current = words;
     activeIdxRef.current = -1;
-    v.dispatch({
-      changes: { from: 0, to: v.state.doc.length, insert: text },
-      effects: [setBase.of(baseDecorations(words, pronOn(view, corrections.length > 0)))],
-    });
+    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
     v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
-  }, [segments, alignment]);
+  }, [segments]);
 
-  // Rebuild correction + pronunciation layers when corrections or the view toggle change.
+  // Rebuild the correction layer when corrections or the view toggle change.
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
     v.dispatch({
-      effects: [
-        setBase.of(baseDecorations(wordsRef.current, pronOn(view, corrections.length > 0))),
-        setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)),
-      ],
+      effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)),
     });
   }, [corrections, view]);
 
@@ -454,7 +357,7 @@ export function CodeTranscript({
   useEffect(() => {
     const v = viewRef.current;
     if (!v) return;
-    if (!pronOn(view, corrections.length > 0)) {
+    if (!showingOriginal(view, corrections.length > 0)) {
       v.dispatch({ effects: setActive.of(Decoration.none) });
       activeIdxRef.current = -1;
       return;

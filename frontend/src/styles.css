@@ -771,149 +771,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 }
 
 /* =========================
-   Pronunciation view
-   ========================= */
-.pron-view {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 18px 28px;
-  background: var(--bg);
-}
-.pron-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 120px;
-  color: var(--fg-faint);
-  font-size: 13px;
-}
-.pron-panel {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 18px;
-  max-width: 560px;
-}
-.pron-panel.error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-color: rgba(226, 85, 74, 0.3);
-  color: var(--bad);
-}
-.pron-inline-error {
-  margin: 10px 0 0 !important;
-  color: var(--bad) !important;
-  font-size: 12px !important;
-}
-.pron-panel h3 { margin: 0 0 8px; font-size: 15px; }
-.pron-panel p { color: var(--fg-dim); line-height: 1.5; margin: 0 0 12px; }
-.pron-panel .progress { margin: 12px 0; }
-.pron-panel .danger { margin-top: 10px; }
-
-.pron-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-.pron-score {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.pron-score-label {
-  font-size: 12px;
-  color: var(--fg-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.pron-score-value {
-  font-size: 24px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-}
-.pron-hint {
-  font-size: 12px;
-  color: var(--fg-faint);
-  line-height: 1.5;
-  margin: 0 0 14px;
-  max-width: 720px;
-}
-
-.worst-phonemes {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-  padding: 10px 12px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-.wp-label {
-  font-size: 12px;
-  color: var(--fg-dim);
-  font-weight: 500;
-}
-.wp-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.wp-sym {
-  font-size: 18px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-}
-.wp-meta {
-  font-size: 11px;
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-}
-
-.phoneme-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-content: flex-start;
-}
-.phoneme {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  min-width: 34px;
-  padding: 6px 7px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-elev);
-  cursor: pointer;
-  transition: transform 0.06s, border-color 0.1s;
-  border-bottom-width: 3px;
-}
-.phoneme:hover { transform: translateY(-1px); }
-.phoneme.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.phoneme.conf-high { border-bottom-color: var(--ok); }
-.phoneme.conf-med  { border-bottom-color: var(--warn); }
-.phoneme.conf-low  { border-bottom-color: var(--bad); }
-.ph-sym {
-  font-size: 17px;
-  font-family: var(--font-mono);
-  line-height: 1.1;
-}
-.ph-conf {
-  font-size: 9px;
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-}
-
-/* =========================
    Audio bar (sticky top)
    ========================= */
 .audio-bar {
@@ -1166,65 +1023,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
 }
 
 /* =========================
-   Pronunciation summary bar
-   ========================= */
-.pron-bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 9px 18px;
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.pb-text { font-size: 13px; color: var(--fg-dim); }
-.pb-btn { padding: 7px 12px !important; font-size: 13px !important; }
-.pb-error {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--bad);
-}
-.pb-progress {
-  flex: 1;
-  min-width: 120px;
-  height: 6px;
-  background: var(--bg);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.pb-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
-  transition: width 0.5s ease;
-}
-.pb-score { display: inline-flex; align-items: baseline; gap: 6px; }
-.pb-score-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--fg-faint);
-}
-.pb-score-value { font-size: 18px; font-weight: 700; font-family: var(--font-mono); }
-.pb-weakest { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pb-weakest-label { font-size: 11px; color: var(--fg-faint); }
-.pb-weakest-chip { display: inline-flex; align-items: baseline; gap: 3px; }
-.pb-weakest-sym { font-size: 15px; font-weight: 600; font-family: var(--font-mono); }
-.pb-weakest-meta { font-size: 10px; color: var(--fg-faint); font-family: var(--font-mono); }
-.pb-floating {
-  font-size: 11px;
-  color: var(--fg-faint);
-  padding: 2px 8px;
-  background: var(--bg-elev-2);
-  border-radius: 10px;
-}
-.pb-legend { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap; }
-.pb-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--fg-dim); }
-.pb-legend-swatch { width: 9px; height: 9px; border-radius: 2px; }
-
-/* =========================
    CodeMirror transcript
    ========================= */
 .code-transcript {
@@ -1244,38 +1042,17 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   pointer-events: none;
 }
 
-/* Per-word pronunciation underline (mark decorations) */
-.cm-w {
-  border-bottom: 2.5px solid transparent;
-  border-radius: 2px;
-  cursor: pointer;
-  padding-bottom: 1px;
-}
-.cm-w-clear { border-bottom-color: #5ec47b; }
-.cm-w-accent { border-bottom-color: #e4b85e; }
-.cm-w-codeswitch { border-bottom-color: #8a7ff0; }
-.cm-w-gap { border-bottom-color: #e2554a; }
-.cm-w-unknown { border-bottom-color: transparent; }
-.cm-w:hover { background: var(--bg-elev-2); }
 
 .cm-active-word {
   background: var(--accent-soft);
   border-radius: 3px;
 }
 
-/* Hover tooltip (pronunciation analysis) */
+/* Hover tooltip shell — strips CodeMirror's default chrome so the tooltip
+   bodies below can draw their own card. */
 .cm-tooltip.cm-tooltip-hover {
   background: transparent;
   border: 0;
-}
-.cm-pron-tip {
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  box-shadow: var(--shadow);
-  max-width: 340px;
-  font-family: var(--font-ui);
 }
 .cm-tip-head {
   display: flex;
@@ -1285,25 +1062,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   margin-bottom: 4px;
 }
 .cm-tip-cat { font-size: 12.5px; font-weight: 600; }
-.cm-tip-confs { font-size: 11px; color: var(--fg-faint); font-family: var(--font-mono); white-space: nowrap; }
-.cm-tip-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--fg-dim); line-height: 1.45; }
-.cm-tip-phonemes { display: flex; flex-wrap: wrap; gap: 4px; }
-.cm-tip-ph {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 26px;
-  padding: 3px 5px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  border-bottom-width: 3px;
-  background: var(--bg);
-}
-.cm-tip-ph.conf-high { border-bottom-color: var(--ok); }
-.cm-tip-ph.conf-med { border-bottom-color: var(--warn); }
-.cm-tip-ph.conf-low { border-bottom-color: var(--bad); }
-.cm-tip-ph-sym { font-size: 15px; font-family: var(--font-mono); line-height: 1.1; }
-.cm-tip-ph-conf { font-size: 8px; color: var(--fg-faint); font-family: var(--font-mono); }
 
 /* Correction span mark in Original view (background tint set inline by category) */
 .cm-corr { border-radius: 2px; }
@@ -1315,9 +1073,9 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   cursor: pointer;
 }
 
-/* Corrected/Original toggle (lives in the pronunciation bar, right-aligned) */
+/* Corrected/Original toggle (lives at the right end of the audio bar) */
 .corr-toggle {
-  margin-left: auto;
+  flex-shrink: 0;
   display: inline-flex;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1555,70 +1313,6 @@ code { font-family: var(--font-mono); font-size: 0.9em; }
   margin: 4px 0 14px;
   letter-spacing: 0.02em;
 }
-
-/* =========================
-   Per-word pronunciation in transcript (legacy React Transcript)
-   ========================= */
-.seg-meta { cursor: pointer; }
-.seg-text.pron-text {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px 7px;
-}
-.word-wrap { position: relative; display: inline-block; }
-.word {
-  cursor: pointer;
-  border-bottom: 2.5px solid transparent;
-  padding: 0 2px 1px;
-  border-radius: 3px;
-  transition: background 0.1s;
-}
-.word:hover { background: var(--bg-elev-2); }
-.word.active { background: var(--accent-soft); }
-
-.word-popover-backdrop { position: fixed; inset: 0; z-index: 40; }
-.word-popover {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  z-index: 50;
-  width: max-content;
-  max-width: 340px;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  box-shadow: var(--shadow);
-}
-.wp-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-.wp-cat { font-size: 12.5px; font-weight: 600; }
-.wp-confs { font-size: 11px; color: var(--fg-faint); font-family: var(--font-mono); white-space: nowrap; }
-.wp-hint { margin: 0 0 8px; font-size: 11.5px; color: var(--fg-dim); line-height: 1.45; }
-.wp-phonemes { display: flex; flex-wrap: wrap; gap: 4px; }
-.wp-ph {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 26px;
-  padding: 3px 5px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  border-bottom-width: 3px;
-  background: var(--bg);
-}
-.wp-ph.conf-high { border-bottom-color: var(--ok); }
-.wp-ph.conf-med { border-bottom-color: var(--warn); }
-.wp-ph.conf-low { border-bottom-color: var(--bad); }
-.wp-ph-sym { font-size: 15px; font-family: var(--font-mono); line-height: 1.1; }
-.wp-ph-conf { font-size: 8px; color: var(--fg-faint); font-family: var(--font-mono); }
-.wp-empty { margin: 0; font-size: 11px; color: var(--fg-faint); }
 
 /* =========================
    Model notice (dismissible, non-blocking — the app is fully usable behind it)

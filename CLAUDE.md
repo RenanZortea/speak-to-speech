@@ -2,24 +2,27 @@
 
 SpeakToSpeech: a local, single-user desktop app for **language-learning speech review**.
 Record/transcribe target-language speech (Hebrew-first), review it against the audio to
-find gaps (mispronunciations, code-switches to L1, errors), and repair them. Verbatim
+find gaps (code-switches to L1, wrong words, errors), and repair them. Verbatim
 fidelity matters more than clean output — pauses/false-starts/errors are *signal*.
 
-Stack: **Python (faster-whisper + wav2vec2) + pywebview** backend, **React + TypeScript +
+Stack: **Python (faster-whisper) + pywebview** backend, **React + TypeScript +
 CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
+
+**Removed in v0.8.0**: pronunciation analysis (wav2vec2 phoneme CTC) and accent
+classification, with the whole torch/transformers/soundfile dependency arm. Don't
+reintroduce them casually — the design docs under `docs/superpowers/` describing
+them are historical.
 
 ## Run / build
 
 - Python venv: `C:\whisper-he\Scripts\python.exe` (Python 3.11; has faster-whisper,
-  ctranslate2, nvidia-cu12 DLLs, pywebview, torch-cpu, transformers, soundfile, psutil,
-  nvidia-ml-py). **Do not use the global Python 3.14.**
+  ctranslate2, nvidia-cu12 DLLs, pywebview, psutil, nvidia-ml-py). **Do not use the
+  global Python 3.14.**
 - Dev: terminal 1 `cd frontend && npm run dev`; terminal 2
   `& C:\whisper-he\Scripts\python.exe backend\main.py --dev`.
 - Typecheck: `cd frontend && npx tsc --noEmit`. Build frontend: `npm run build`.
 - Full installer build: `.\build.ps1` (npm build → PyInstaller `SpeakToSpeech.spec` →
   Inno Setup `installer.iss` → portable zip). Flags: `-SkipFrontend -SkipInstaller -SkipZip -Clean`.
-- Frozen pronunciation self-test: run the built EXE with `--selftest` (writes PASS/FAIL to
-  `%TEMP%\SpeakToSpeech-launch.log`).
 - **Linux (Arch, since v0.6.0)**: venv at repo-root `.venv/` (Python 3.11 from AUR
   `python311`); needs system `webkit2gtk-4.1` + pip `pycairo PyGObject`. Dev:
   `.venv/bin/python backend/main.py --dev`. Port notes + release gotchas in
@@ -32,8 +35,6 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
 - `main.py` — pywebview window + `Api` class exposed to JS. Pushes events via
   `evaluate_js("window.__emit(event, payload)")`.
 - `worker.py` — `WhisperWorker` (faster-whisper, GPU). CUDA DLL preload at top.
-- `pronunciation.py` — `PronunciationWorker` (wav2vec2-xlsr-53-espeak phoneme CTC, CPU torch).
-  Tokenizer bypassed (no espeak); loads offline.
 - `orchestration.py` — `ModelHost` base, `ResourceManager` (≤1 GPU model resident),
   `JobLane` (serialize compute jobs, single busy signal).
 - `model_manager.py` — model catalog, HF cache mgmt, cancellable downloads (mp child).
@@ -48,16 +49,15 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
 **frontend/src/**
 - `App.tsx` — top-level state + event wiring + all the handlers.
 - `api.ts` — typed wrapper over `window.pywebview.api` + the `__emit` event bus.
-- `CodeTranscript.tsx` — CM6 transcript surface. Decoration layers: pronunciation marks,
-  active-word, corrections (replace widgets in Corrected view / tint in Original). Hover
-  tooltip (pronunciation OR correction), click=seek, right-click=correction menu.
+- `CodeTranscript.tsx` — CM6 transcript surface. Decoration layers: active-word +
+  corrections (replace widgets in Corrected view / tint in Original). Hover tooltip
+  (correction), click=seek, right-click=correction menu.
 - `transcriptDoc.ts` — **shared** doc builder (CM6 + AI mapper must produce identical offsets).
-- `alignment.ts` — pairs phonemes↔words by timestamp overlap; 2D confidence categories.
 - `corrections.ts` — Correction model (immutable base, char-span anchored); `applyCorrections`.
 - `aiCorrect.ts` — AI prompt builder, JSON parse, segment+quote→span mapping.
 - `CorrectAiModal` / `CorrectionDialog` / `CorrectionMenu` — correction UI.
-- `PronunciationBar`, `AudioBar`/`Waveform`, `Sidebar`, `SessionsRail`, `ResourceFooter`,
-  `SettingsModal`, `ModelManager`, `Recorder`.
+- `AudioBar`/`Waveform` (also hosts the Corrected/Original toggle), `Sidebar`,
+  `SessionsRail`, `ResourceFooter`, `SettingsModal`, `ModelManager`, `Recorder`.
 
 ## Conventions / gotchas (hard-won — don't re-break)
 
@@ -76,13 +76,15 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
   attached. `api.ts`'s `ready()` waits for a *known method* (`check_model`), not just `api`.
 - **PowerShell 5.1 reads BOM-less files as ANSI** → no non-ASCII in `.ps1` *code* (em-dashes
   in strings became smart-quotes and broke parsing). ASCII only in build.ps1.
-- **HF offline**: pronunciation loads with `local_files_only=True` (and the validate script
-  uses `HF_HUB_OFFLINE=1`) — otherwise transformers makes a blocking network call.
 - **Immutable transcript**: corrections never mutate the base doc; they're overlays anchored
   to stable char spans. The "corrected version" is *derived*. New audio / re-transcribe
   clears corrections (offsets would no longer match).
-- **2D confidence**: Whisper word `probability` (lexical) × wav2vec2 phoneme conf (acoustic)
-  → clear / off-pronunciation / unclear-word(code-switch) / gap. See `alignment.ts`.
+- **`showingOriginal()` in `CodeTranscript.tsx`** gates click-to-seek and the active-word
+  highlight: word char offsets only line up with audio timings while the verbatim doc is
+  on screen. In Corrected view the replace widgets shift the text, so word-anchored
+  behaviour can't be trusted.
+- **Dead DB column**: `sessions.pronunciation_json` is intentionally left in the schema
+  (SQLite `DROP COLUMN` is awkward, old rows are harmless). Nothing reads or writes it.
 - **AI corrections = same `Correction` shape** as manual; the render/map/persist pipeline is
   shared. JSON is the contract; nothing AI-specific is bundled.
 - **MediaRecorder timeline**: recordings don't zero-base — the first packet's PTS is the audio
@@ -92,7 +94,7 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
   with a lossless `ffmpeg -c copy -avoid_negative_ts make_zero -fflags +genpts` remux
   (best-effort; falls back to the raw upload). Whisper is unaffected (ffmpeg zero-bases on decode).
 - **Ollama VRAM coordination**: `ollama_correct` runs through the `JobLane` (can't overlap
-  transcribe/pronounce), unloads our GPU model first, and asks Ollama to free its own VRAM
+  a transcribe job), unloads our GPU model first, and asks Ollama to free its own VRAM
   after (`keep_alive=0`). Net: ≤1 big model in VRAM on the 6 GB card. Trade-off: Whisper
   reloads (~10s) after each correction. Daemon is the user's to run; we never spawn it.
 - **Ollama generation lifecycle lives in `App.tsx`** (`aiGen` state + the `ollama_status`
@@ -103,10 +105,11 @@ CodeMirror 6 + wavesurfer.js** frontend. Local-only, no cloud, no auth.
 
 - **v0.2.0 released** (installer + portable zip on GitHub; in-app updater live).
 - Done since: manual correction layer (right-click, inline corrected view, hover original
-  strikethrough, Corrected/Original toggle in the pron bar), AI correction paste flow.
+  strikethrough, Corrected/Original toggle), AI correction paste flow + local Ollama flow.
+- Pronunciation + accent analysis removed (2026-08-09).
 - **Personal next-steps live in `ROADMAP.md`** (gitignored). Highlights: Anki export from
-  accepted corrections, optional accept/reject review stepper, phoneme/code-switch prompt
-  enrichment, pronunciation IPA accuracy/tooltips/true-GOP, repo README refresh, code signing.
+  accepted corrections, optional accept/reject review stepper, repo README refresh,
+  code signing.
 
 ## Working style with this user
 

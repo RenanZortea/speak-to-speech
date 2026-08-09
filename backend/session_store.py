@@ -1,16 +1,20 @@
 """
 Session persistence — SQLite, stdlib only.
 
-A "session" is a saved transcription (+ optional pronunciation analysis) with its
-audio copied into app storage so it survives the user moving/deleting the original.
+A "session" is a saved transcription (+ its corrections) with its audio copied
+into app storage so it survives the user moving/deleting the original.
 
 Layout:
-    ~/SpeakToSpeech/sessions.db                 — metadata + segments/pronunciation JSON
+    ~/SpeakToSpeech/sessions.db                 — metadata + segments/corrections JSON
     ~/SpeakToSpeech/sessions/<id>/audio.<ext>   — copied audio per session
 
-Segments and pronunciation are stored as JSON blobs (denormalized). We never query
+Segments and corrections are stored as JSON blobs (denormalized). We never query
 inside them; loading a session reads the whole row. Normalize later only if
-cross-session queries (e.g. "all my weak ר's") are ever needed.
+cross-session queries are ever needed.
+
+`pronunciation_json` is a dead column: the pronunciation feature was removed, but
+the column stays (SQLite makes DROP COLUMN awkward and old rows are harmless).
+Nothing reads or writes it.
 """
 import json
 import shutil
@@ -72,7 +76,7 @@ class SessionStore:
 
     def save_session(self, data: dict) -> dict:
         """Create a new saved session. `data` keys:
-        title, audio_path, language, model_id, duration, segments, pronunciation."""
+        title, audio_path, language, model_id, duration, segments, corrections."""
         sid = uuid.uuid4().hex[:12]
         now = _now()
 
@@ -92,8 +96,6 @@ class SessionStore:
 
         title = (data.get("title") or "").strip() or f"Session {now[:10]}"
         segments_json = json.dumps(data.get("segments") or [], ensure_ascii=False)
-        pron = data.get("pronunciation")
-        pron_json = json.dumps(pron, ensure_ascii=False) if pron else None
         corr = data.get("corrections")
         corr_json = json.dumps(corr, ensure_ascii=False) if corr else None
 
@@ -103,27 +105,24 @@ class SessionStore:
                 INSERT INTO sessions
                   (id, title, created_at, updated_at, audio_stored_path,
                    original_audio_path, language, model_id, duration,
-                   segments_json, pronunciation_json, corrections_json)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                   segments_json, corrections_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     sid, title, now, now, stored_path, src,
                     data.get("language"), data.get("model_id"),
-                    data.get("duration"), segments_json, pron_json, corr_json,
+                    data.get("duration"), segments_json, corr_json,
                 ),
             )
         return self._summary_row({
             "id": sid, "title": title, "created_at": now, "updated_at": now,
             "duration": data.get("duration"),
-            "pronunciation_json": pron_json,
         })
 
     def update_session(self, sid: str, data: dict) -> Optional[dict]:
-        """Overwrite segments/pronunciation/title of an existing session."""
+        """Overwrite segments/corrections/title of an existing session."""
         now = _now()
         segments_json = json.dumps(data.get("segments") or [], ensure_ascii=False)
-        pron = data.get("pronunciation")
-        pron_json = json.dumps(pron, ensure_ascii=False) if pron else None
         corr = data.get("corrections")
         corr_json = json.dumps(corr, ensure_ascii=False) if corr else None
         with self._lock, self._connect() as conn:
@@ -133,12 +132,11 @@ class SessionStore:
                    SET title = COALESCE(?, title),
                        updated_at = ?,
                        segments_json = ?,
-                       pronunciation_json = ?,
                        corrections_json = ?,
                        duration = COALESCE(?, duration)
                  WHERE id = ?
                 """,
-                (data.get("title"), now, segments_json, pron_json, corr_json,
+                (data.get("title"), now, segments_json, corr_json,
                  data.get("duration"), sid),
             )
             if cur.rowcount == 0:
@@ -148,7 +146,7 @@ class SessionStore:
     def list_sessions(self) -> list[dict]:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
-                """SELECT id, title, created_at, updated_at, duration, pronunciation_json
+                """SELECT id, title, created_at, updated_at, duration
                    FROM sessions ORDER BY updated_at DESC"""
             ).fetchall()
         return [self._summary_row(dict(r)) for r in rows]
@@ -169,7 +167,6 @@ class SessionStore:
             "model_id": r["model_id"],
             "duration": r["duration"],
             "segments": json.loads(r["segments_json"]) if r["segments_json"] else [],
-            "pronunciation": json.loads(r["pronunciation_json"]) if r["pronunciation_json"] else None,
             "corrections": json.loads(r["corrections_json"]) if r.get("corrections_json") else [],
         }
 
@@ -201,5 +198,4 @@ class SessionStore:
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
             "duration": r.get("duration"),
-            "has_pronunciation": bool(r.get("pronunciation_json")),
         }

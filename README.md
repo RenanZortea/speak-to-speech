@@ -139,9 +139,6 @@ python3.11 -m venv .venv
 .venv/bin/pip install faster-whisper==1.2.1 ctranslate2==4.7.2
 .venv/bin/pip install "nvidia-cublas-cu12==12.9.*" "nvidia-cudnn-cu12==9.*"
 .venv/bin/pip install pycairo PyGObject
-# Pronunciation analysis (optional but recommended): CPU torch + transformers
-.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-.venv/bin/pip install transformers soundfile
 
 cd frontend && npm install && cd ..
 ```

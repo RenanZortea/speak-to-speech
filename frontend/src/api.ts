@@ -54,51 +54,12 @@ export type CatalogModel = {
 
 export type LanguageOption = { code: string; name: string };
 
-export type Phoneme = {
-  symbol: string;
-  start: number;
-  end: number;
-  confidence: number;
-};
-
-export type PronModelCheck = {
-  model_id: string;
-  present: boolean;
-  loaded: boolean;
-};
-
-export type PronStatusEvent =
-  | { status: "loading_model" }
-  | { status: "converting" }
-  | { status: "analyzing" }
-  | { status: "done"; phonemes: Phoneme[]; mean_confidence: number; duration: number }
-  | { status: "error"; error: string };
-
-export type PronunciationResult = { phonemes: Phoneme[]; mean_confidence: number };
-
-export type AccentProb = { label: string; prob: number };
-export type AccentResult = {
-  label: string;
-  confidence: number;
-  probs: AccentProb[];
-  model_id: string;
-};
-export type AccentModelInfo = {
-  id: string;
-  language: string;
-  name: string;
-  size_bytes: number;
-  present: boolean;
-  size_on_disk: number;
-};
-
 export type SessionSummary = {
   id: string;
   title: string;
   created_at: string;
   updated_at: string;
   duration: number | null;
-  has_pronunciation: boolean;
 };
 
 export type FullSession = {
@@ -112,7 +73,6 @@ export type FullSession = {
   model_id: string | null;
   duration: number | null;
   segments: Segment[];
-  pronunciation: PronunciationResult | null;
   corrections?: Correction[];
 };
 
@@ -136,11 +96,8 @@ export type ResourceStats = {
 
 export type Settings = {
   version: string;
-  cpu_threads: number;
-  cpu_count: number;
   release_when_idle: boolean;
   whisper_loaded: boolean;
-  pron_loaded: boolean;
   models_dir: string;
   models_dir_custom: boolean;
 };
@@ -162,7 +119,6 @@ export type SaveSessionData = {
   model_id?: string;
   duration?: number;
   segments: Segment[];
-  pronunciation: PronunciationResult | null;
   corrections?: Correction[];
 };
 
@@ -279,30 +235,6 @@ export const api = {
   async cancelDownload(modelId: string): Promise<{ cancelled: boolean; model_id: string }> {
     return (await ready()).cancel_download(modelId);
   },
-  async checkPronModel(): Promise<PronModelCheck> {
-    return (await ready()).check_pron_model();
-  },
-  async downloadPronModel(): Promise<{ started: boolean; model_id: string }> {
-    return (await ready()).download_pron_model();
-  },
-  async cancelPronDownload(): Promise<{ cancelled: boolean }> {
-    return (await ready()).cancel_pron_download();
-  },
-  async assessPronunciation(audioPath: string): Promise<{ started: boolean }> {
-    return (await ready()).assess_pronunciation(audioPath);
-  },
-  async listAccentModels(): Promise<AccentModelInfo[]> {
-    return (await ready()).list_accent_models();
-  },
-  async downloadAccentModel(modelId: string): Promise<{ started: boolean; model_id: string }> {
-    return (await ready()).download_accent_model(modelId);
-  },
-  async cancelAccentDownload(modelId: string): Promise<{ cancelled: boolean }> {
-    return (await ready()).cancel_accent_download(modelId);
-  },
-  async analyzeAccent(audioPath: string, language: string): Promise<{ started: boolean }> {
-    return (await ready()).analyze_accent(audioPath, language);
-  },
   async saveSession(data: SaveSessionData): Promise<SessionSummary> {
     return (await ready()).save_session(data);
   },
@@ -324,13 +256,10 @@ export const api = {
   async getSettings(): Promise<Settings> {
     return (await ready()).get_settings();
   },
-  async setCpuThreads(n: number): Promise<{ cpu_threads: number }> {
-    return (await ready()).set_cpu_threads(n);
-  },
   async setReleaseWhenIdle(enabled: boolean): Promise<{ release_when_idle: boolean }> {
     return (await ready()).set_release_when_idle(enabled);
   },
-  async unloadAllModels(): Promise<{ whisper_loaded: boolean; pron_loaded: boolean }> {
+  async unloadAllModels(): Promise<{ whisper_loaded: boolean }> {
     return (await ready()).unload_all_models();
   },
   async chooseModelsDir(): Promise<{ models_dir: string; changed: boolean } | null> {

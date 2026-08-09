@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Cpu, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink, MousePointerClick, FolderOpen } from "lucide-react";
+import { X, Power, Trash2, Loader2, ArrowUpCircle, ExternalLink, MousePointerClick, FolderOpen } from "lucide-react";
 import { api, type Settings, type UpdateInfo } from "./api";
 
 interface Props {
@@ -44,11 +44,6 @@ export function SettingsModal({
     setChecking(false);
   };
 
-  const handleThreads = async (n: number) => {
-    setSettings((s) => (s ? { ...s, cpu_threads: n } : s));
-    await api.setCpuThreads(n);
-  };
-
   const handleRelease = async (enabled: boolean) => {
     setSettings((s) => (s ? { ...s, release_when_idle: enabled } : s));
     await api.setReleaseWhenIdle(enabled);
@@ -77,7 +72,7 @@ export function SettingsModal({
     setChoosingDir(false);
   };
 
-  const anyLoaded = settings?.whisper_loaded || settings?.pron_loaded;
+  const anyLoaded = settings?.whisper_loaded ?? false;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -96,29 +91,6 @@ export function SettingsModal({
           </div>
         ) : (
           <div className="settings-body">
-            <section className="settings-row">
-              <div className="settings-row-head">
-                <span className="settings-label">
-                  <Cpu size={14} /> CPU threads
-                </span>
-                <span className="settings-value">
-                  {settings.cpu_threads} / {settings.cpu_count}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={settings.cpu_count}
-                step={1}
-                value={settings.cpu_threads}
-                onChange={(e) => handleThreads(parseInt(e.target.value, 10))}
-              />
-              <p className="settings-hint">
-                Caps threads used by CPU inference (pronunciation). Lower = leaves more
-                cores for your other work; higher = faster analysis.
-              </p>
-            </section>
-
             <section className="settings-row">
               <label className="settings-toggle">
                 <input
@@ -148,9 +120,9 @@ export function SettingsModal({
                 </span>
               </label>
               <p className="settings-hint">
-                In Corrected view, click a word to jump the audio there. Pronunciation
-                coloring and the playback highlight are always hidden in Corrected view —
-                they only apply to your original speech.
+                In Corrected view, click a word to jump the audio there. The playback
+                highlight is always hidden in Corrected view — it tracks your original
+                speech, whose word positions no longer line up once corrections apply.
               </p>
             </section>
 
@@ -181,7 +153,7 @@ export function SettingsModal({
                 <span>Change folder…</span>
               </button>
               <p className="settings-hint">
-                Where downloaded models (Whisper + pronunciation) are stored. New
+                Where downloaded Whisper models are stored. New
                 downloads and model loads use this folder immediately; models already
                 downloaded elsewhere stay where they are — re-download them here if you
                 want everything in one place.
@@ -195,9 +167,6 @@ export function SettingsModal({
                   <span className={`tag ${settings.whisper_loaded ? "on" : "off"}`}>
                     Whisper {settings.whisper_loaded ? "loaded" : "idle"}
                   </span>
-                  <span className={`tag ${settings.pron_loaded ? "on" : "off"}`}>
-                    Pronunciation {settings.pron_loaded ? "loaded" : "idle"}
-                  </span>
                 </span>
               </div>
               <button
@@ -209,8 +178,8 @@ export function SettingsModal({
                 <span>Unload all models</span>
               </button>
               <p className="settings-hint">
-                Immediately frees all model memory. They reload automatically on the next
-                transcription or analysis.
+                Immediately frees all model memory. Models reload automatically on the
+                next transcription.
               </p>
             </section>
 

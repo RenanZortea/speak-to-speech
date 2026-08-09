@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   Cpu,
@@ -10,15 +10,11 @@ import {
 import {
   api,
   on,
-  type AccentModelInfo,
-  type AccentResult,
   type CatalogModel,
   type GpuInfo,
   type LanguageOption,
   type ModelDownloadEvent,
   type ModelLoadStatusEvent,
-  type Phoneme,
-  type PronStatusEvent,
   type ResourceStats,
   type OllamaStatusEvent,
   type Segment,
@@ -26,7 +22,6 @@ import {
   type TranscribeStatusEvent,
   type UpdateInfo,
 } from "./api";
-import { alignPhonemes } from "./alignment";
 import {
   buildCorrectionPrompt,
   mapAiCorrections,
@@ -35,26 +30,16 @@ import {
 } from "./aiCorrect";
 import { type Correction, correctedSentenceAt, newCorrectionId } from "./corrections";
 import { buildTranscriptDoc } from "./transcriptDoc";
-import { AccentBar, type AccentStatus } from "./AccentBar";
 import { AudioBar } from "./AudioBar";
 import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
 import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
 import { CorrectionMenu, type MenuTarget } from "./CorrectionMenu";
 import { CorrectAiModal } from "./CorrectAiModal";
 import { ModelManager } from "./ModelManager";
-import { PronunciationBar } from "./PronunciationBar";
 import { ResourceFooter } from "./ResourceFooter";
 import { SessionsRail } from "./SessionsRail";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
-
-type PronStatus =
-  | "idle"
-  | "loading_model"
-  | "converting"
-  | "analyzing"
-  | "done"
-  | "error";
 
 type AppStatus =
   | { kind: "checking" }
@@ -83,27 +68,6 @@ export function App() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const [currentLoadedId, setCurrentLoadedId] = useState<string | null>(null);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
-
-  // Pronunciation state — lifted here so it survives tab switches and so the
-  // pron_status "done" event isn't missed while the Pronunciation tab is hidden.
-  const [pronModelPresent, setPronModelPresent] = useState<boolean | null>(null);
-  const [pronDownloadBytes, setPronDownloadBytes] = useState<number | null>(null);
-  const [pronStatus, setPronStatus] =
-    useState<PronStatus>("idle");
-  const [pronPhonemes, setPronPhonemes] = useState<Phoneme[]>([]);
-  const [pronMeanConf, setPronMeanConf] = useState<number>(0);
-  const [pronError, setPronError] = useState<string | null>(null);
-  const [jobState, setJobState] = useState<{ busy: boolean; job: string | null }>({
-    busy: false,
-    job: null,
-  });
-
-  // Accent state — on-demand, language-gated (mirrors pronunciation state above).
-  const [accentModels, setAccentModels] = useState<AccentModelInfo[]>([]);
-  const [accentStatus, setAccentStatus] = useState<AccentStatus>("idle");
-  const [accentResult, setAccentResult] = useState<AccentResult | null>(null);
-  const [accentError, setAccentError] = useState<string | null>(null);
-  const [accentDownloadBytes, setAccentDownloadBytes] = useState<number | null>(null);
 
   // Sessions (persistence)
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -168,8 +132,6 @@ export function App() {
     });
     api.getServerUrl().then(setServerUrl);
     api.getLanguages().then(setLanguages);
-    api.checkPronModel().then((r) => setPronModelPresent(r.present));
-    void api.listAccentModels().then(setAccentModels);
     void refreshModels();
     void refreshSessions();
 
@@ -205,52 +167,6 @@ export function App() {
       else if (p.status === "error") setStatus({ kind: "error", message: p.error });
     });
 
-    const offPronDl = on("pron_model_download", (p: ModelDownloadEvent) => {
-      if (p.status === "downloading") setPronDownloadBytes(p.bytes);
-      else if (p.status === "complete") {
-        setPronModelPresent(true);
-        setPronDownloadBytes(null);
-      } else if (p.status === "cancelled") {
-        setPronDownloadBytes(null);
-      } else if (p.status === "error") {
-        setPronDownloadBytes(null);
-        setPronError(p.error);
-      }
-    });
-    const offPron = on("pron_status", (p: PronStatusEvent) => {
-      if (p.status === "done") {
-        setPronPhonemes(p.phonemes);
-        setPronMeanConf(p.mean_confidence);
-        setPronStatus("done");
-        setHasUnsaved(true);
-      } else if (p.status === "error") {
-        setPronStatus("error");
-        setPronError(p.error);
-      } else {
-        setPronStatus(p.status); // loading_model | converting | analyzing
-      }
-    });
-    const offAccent = on("accent_status", (p: any) => {
-      if (p.status === "done") {
-        setAccentResult(p as AccentResult);
-        setAccentStatus("done");
-      } else if (p.status === "error") {
-        setAccentError(p.error);
-        setAccentStatus("error");
-      } else {
-        setAccentStatus(p.status);
-      }
-    });
-    const offAccentDl = on("accent_model_download", (p: any) => {
-      if (p.status === "downloading") setAccentDownloadBytes(p.bytes);
-      else {
-        setAccentDownloadBytes(null);
-        if (p.status === "complete") void api.listAccentModels().then(setAccentModels);
-      }
-    });
-    const offJob = on("job_state", (p: { busy: boolean; job: string | null }) => {
-      setJobState(p);
-    });
     const offRes = on("resource_stats", (s: ResourceStats) => {
       setResourceStats(s);
     });
@@ -291,8 +207,7 @@ export function App() {
     });
 
     return () => {
-      offDl(); offMl(); offSeg(); offTr(); offPronDl(); offPron(); offAccent(); offAccentDl();
-      offJob(); offRes(); offUpd(); offAi();
+      offDl(); offMl(); offSeg(); offTr(); offRes(); offUpd(); offAi();
     };
   }, [refreshModels, refreshSessions]);
 
@@ -301,13 +216,7 @@ export function App() {
     setSegments([]);
     setCurrentTime(0);
     setDetectedLanguage(null);
-    // New audio invalidates any prior pronunciation/accent analysis, corrections, session.
-    setPronPhonemes([]);
-    setPronStatus("idle");
-    setPronError(null);
-    setAccentResult(null);
-    setAccentStatus("idle");
-    setAccentError(null);
+    // New audio invalidates any prior corrections and the active session.
     setCorrections([]);
     setAiGen({ status: "idle" });
     setActiveSessionId(null);
@@ -320,50 +229,12 @@ export function App() {
     });
   };
 
-  const handleAnalyzePronunciation = () => {
-    if (!audio) return;
-    setPronPhonemes([]);
-    setPronError(null);
-    setPronStatus("loading_model");
-    void api.assessPronunciation(audio.path);
-  };
-
-  const handleDownloadPronModel = () => {
-    setPronError(null);
-    void api.downloadPronModel();
-  };
-
-  const handleCancelPronDownload = () => {
-    void api.cancelPronDownload();
-  };
-
-  const accentModel = accentModels.find((m) => m.language === activeLanguage) ?? null;
-
-  const handleAnalyzeAccent = () => {
-    if (!audio || !accentModel) return;
-    setAccentError(null);
-    setAccentStatus("loading_model");
-    void api.analyzeAccent(audio.path, activeLanguage);
-  };
-  const handleDownloadAccent = () => {
-    if (!accentModel) return;
-    void api.downloadAccentModel(accentModel.id);
-  };
-  const handleCancelAccentDownload = () => {
-    if (!accentModel) return;
-    void api.cancelAccentDownload(accentModel.id);
-  };
-
   // ---- Sessions ----
 
   const canSaveSession = !!audio && segments.length > 0;
 
   const handleSaveSession = async () => {
     if (!audio || segments.length === 0) return;
-    const pronunciation =
-      pronStatus === "done" && pronPhonemes.length > 0
-        ? { phonemes: pronPhonemes, mean_confidence: pronMeanConf }
-        : null;
     const data = {
       title: deriveTitle(segments),
       audio_path: audio.path,
@@ -371,7 +242,6 @@ export function App() {
       model_id: activeModelId,
       duration: audioDuration || undefined,
       segments,
-      pronunciation,
       corrections,
     };
     if (activeSessionId) {
@@ -394,17 +264,6 @@ export function App() {
     if (sess.audio_url) {
       setAudio({ path: sess.audio_stored_path ?? "", url: sess.audio_url });
     }
-    if (sess.pronunciation && sess.pronunciation.phonemes.length > 0) {
-      setPronPhonemes(sess.pronunciation.phonemes);
-      setPronMeanConf(sess.pronunciation.mean_confidence);
-      setPronStatus("done");
-    } else {
-      setPronPhonemes([]);
-      setPronStatus("idle");
-    }
-    setAccentResult(null);
-    setAccentStatus("idle");
-    setAccentError(null);
     setCorrections(sess.corrections ?? []);
     if (sess.language) setActiveLanguage(sess.language);
     if (sess.model_id) setActiveModelId(sess.model_id);
@@ -459,12 +318,6 @@ export function App() {
   const handleSeek = (t: number) => {
     seekRef.current?.(t);
   };
-
-  // Pair phonemes with words once both exist. Floating phonemes stay unassigned.
-  const alignment = useMemo(() => {
-    if (pronStatus !== "done" || pronPhonemes.length === 0) return null;
-    return alignPhonemes(segments, pronPhonemes);
-  }, [pronStatus, pronPhonemes, segments]);
 
   // ---- Corrections ----
   const handleRequestContextMenu = (t: MenuTarget) => setCtxMenu(t);
@@ -600,12 +453,6 @@ export function App() {
           <span className="brand-name">SpeakToSpeech</span>
         </div>
         <div className="header-status">
-          {jobState.busy && jobState.job === "pronunciation" && (
-            <span className="badge badge-transcribing">
-              <Loader2 size={12} className="spin" />
-              <span>Analyzing</span>
-            </span>
-          )}
           <GpuBadge gpu={gpu} />
           <StatusBadge status={status} segments={segments.length} />
         </div>
@@ -668,41 +515,13 @@ export function App() {
             currentTime={currentTime}
             onTimeChange={setCurrentTime}
             registerSeek={registerSeek}
-          />
-
-          <PronunciationBar
-            hasAudio={!!audio}
-            modelPresent={pronModelPresent}
-            downloadBytes={pronDownloadBytes}
-            status={pronStatus}
-            phonemes={pronPhonemes}
-            meanConfidence={pronMeanConf}
-            floatingCount={alignment?.floating.length ?? 0}
-            error={pronError}
             hasCorrections={corrections.length > 0}
             correctionView={correctionView}
             onCorrectionViewChange={setCorrectionView}
-            onAnalyze={handleAnalyzePronunciation}
-            onDownload={handleDownloadPronModel}
-            onCancelDownload={handleCancelPronDownload}
-          />
-
-          <AccentBar
-            hasAudio={!!audio}
-            supported={!!accentModel}
-            modelPresent={accentModel ? accentModel.present : null}
-            downloadBytes={accentDownloadBytes}
-            status={accentStatus}
-            result={accentResult}
-            error={accentError}
-            onAnalyze={handleAnalyzeAccent}
-            onDownload={handleDownloadAccent}
-            onCancelDownload={handleCancelAccentDownload}
           />
 
           <CodeTranscript
             segments={segments}
-            alignment={alignment}
             corrections={corrections}
             view={correctionView}
             seekInCorrected={seekInCorrected}

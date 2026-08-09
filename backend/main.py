@@ -38,25 +38,20 @@ os.environ["HF_HUB_CACHE"] = str(app_settings.get_models_dir())
 
 import webview
 
-from accent import AccentWorker
 from audio_server import AudioServer
 from model_manager import (
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL_ID,
-    accent_model_for_language,
     cancel_download as mm_cancel_download,
     delete_model as mm_delete_model,
     download_model as mm_download_model,
-    ensure_accent_backbone,
     gpu_info,
     has_ct2_weights,
     is_model_present,
     languages_payload,
-    list_accent_models as mm_list_accent_models,
     list_models,
 )
 from orchestration import JobLane, ResourceManager
-from pronunciation import PRON_MODEL_ID, PronunciationWorker
 from resources import ResourceMonitor
 from session_store import DEFAULT_BASE, SessionStore
 from worker import WhisperWorker
@@ -85,8 +80,6 @@ class Api:
     def __init__(self):
         self._resources = ResourceManager()
         self._worker = WhisperWorker(resource_manager=self._resources)
-        self._pron = PronunciationWorker()
-        self._accent = AccentWorker()
         self._jobs = JobLane(on_state=self._on_job_state)
         self._audio = AudioServer()
         self._audio.start()
@@ -100,8 +93,6 @@ class Api:
         self._active_model_id = self._resolve_active_model()
         self._active_language = app_settings.get_active_language() or DEFAULT_LANGUAGE
         # Resource settings.
-        import os as _os
-        self._cpu_threads = max(1, (_os.cpu_count() or 4) // 2)
         self._release_when_idle = False
 
     def _resolve_active_model(self) -> str:
@@ -217,96 +208,6 @@ class Api:
         ok = mm_cancel_download(model_id)
         return {"cancelled": ok, "model_id": model_id}
 
-    # ---- Pronunciation ----
-
-    def check_pron_model(self):
-        return {
-            "model_id": PRON_MODEL_ID,
-            "present": is_model_present(PRON_MODEL_ID),
-            "loaded": self._pron.is_loaded,
-        }
-
-    def download_pron_model(self):
-        def run():
-            mm_download_model(PRON_MODEL_ID, lambda p: self._emit("pron_model_download", p))
-        threading.Thread(target=run, daemon=True).start()
-        return {"started": True, "model_id": PRON_MODEL_ID}
-
-    def cancel_pron_download(self):
-        ok = mm_cancel_download(PRON_MODEL_ID)
-        return {"cancelled": ok}
-
-    def assess_pronunciation(self, audio_path: str):
-        def job():
-            self._pron.assess(
-                audio_path,
-                on_done=lambda d: self._emit("pron_status", {"status": "done", **d}),
-                on_error=lambda err: self._emit("pron_status", {"status": "error", "error": err}),
-                on_status=lambda s: self._emit("pron_status", s),
-            )
-
-        def run():
-            ok = self._jobs.try_run("pronunciation", job)
-            if ok and self._release_when_idle:
-                self._pron.unload()
-            elif not ok:
-                self._emit("pron_status", {
-                    "status": "error",
-                    "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
-                })
-        threading.Thread(target=run, daemon=True).start()
-        return {"started": True}
-
-    # ---- Accent ----
-
-    def list_accent_models(self):
-        return mm_list_accent_models()
-
-    def download_accent_model(self, model_id: str):
-        desc = next((m for m in mm_list_accent_models() if m["id"] == model_id), None)
-        def run():
-            try:
-                if desc:
-                    ensure_accent_backbone(desc["backbone"])
-            except Exception as e:
-                self._emit("accent_model_download", {"model_id": model_id, "status": "error", "error": f"backbone config download failed: {e}"})
-                return
-            mm_download_model(model_id, lambda p: self._emit("accent_model_download", p))
-        threading.Thread(target=run, daemon=True).start()
-        return {"started": True, "model_id": model_id}
-
-    def cancel_accent_download(self, model_id: str):
-        return {"cancelled": mm_cancel_download(model_id)}
-
-    def analyze_accent(self, audio_path: str, language: str):
-        desc = accent_model_for_language(language)
-        if desc is None:
-            self._emit("accent_status", {
-                "status": "error",
-                "error": f"No accent model for language '{language}'.",
-            })
-            return {"started": False}
-
-        def job():
-            self._accent.classify(
-                audio_path, desc,
-                on_done=lambda d: self._emit("accent_status", {"status": "done", **d}),
-                on_error=lambda err: self._emit("accent_status", {"status": "error", "error": err}),
-                on_status=lambda s: self._emit("accent_status", s),
-            )
-
-        def run():
-            ok = self._jobs.try_run("accent", job)
-            if ok and self._release_when_idle:
-                self._accent.unload()
-            elif not ok:
-                self._emit("accent_status", {
-                    "status": "error",
-                    "error": f"Busy with '{self._jobs.current}' — wait for it to finish.",
-                })
-        threading.Thread(target=run, daemon=True).start()
-        return {"started": True}
-
     # ---- Sessions (persistence) ----
 
     def save_session(self, data: dict):
@@ -340,15 +241,11 @@ class Api:
     # ---- Resources / settings ----
 
     def get_settings(self):
-        import os as _os
         from version import __version__
         return {
             "version": __version__,
-            "cpu_threads": self._cpu_threads,
-            "cpu_count": _os.cpu_count() or 4,
             "release_when_idle": self._release_when_idle,
             "whisper_loaded": self._worker.is_loaded,
-            "pron_loaded": self._pron.is_loaded,
             "models_dir": str(app_settings.get_models_dir()),
             "models_dir_custom": app_settings.is_models_dir_custom(),
         }
@@ -373,27 +270,13 @@ class Api:
         os.environ["HF_HUB_CACHE"] = str(new)
         return {"models_dir": str(new), "changed": True}
 
-    def set_cpu_threads(self, n: int):
-        import os as _os
-        n = max(1, min(int(n), _os.cpu_count() or 4))
-        self._cpu_threads = n
-        self._pron.cpu_threads = n
-        # Apply immediately if torch is already imported.
-        if "torch" in sys.modules:
-            try:
-                sys.modules["torch"].set_num_threads(n)
-            except Exception:
-                pass
-        return {"cpu_threads": n}
-
     def set_release_when_idle(self, enabled: bool):
         self._release_when_idle = bool(enabled)
         return {"release_when_idle": self._release_when_idle}
 
     def unload_all_models(self):
         self._worker.unload()
-        self._pron.unload()
-        return {"whisper_loaded": self._worker.is_loaded, "pron_loaded": self._pron.is_loaded}
+        return {"whisper_loaded": self._worker.is_loaded}
 
     # ---- Updates ----
 
@@ -459,7 +342,7 @@ class Api:
         maps it onto the transcript with the same parser as the paste flow.
 
         VRAM safety: this goes through the JobLane (so it can't run while a
-        transcribe/pronounce job holds the GPU), and we unload our own GPU model
+        transcribe job holds the GPU), and we unload our own GPU model
         before generating. Ollama is asked to unload right after (keep_alive=0).
         Net effect on a small card: at most one big model resident at a time."""
         from ollama_client import OllamaError, generate
@@ -470,7 +353,6 @@ class Api:
             self._emit("ollama_status", {"status": "generating", "model": model})
             # Free VRAM so Ollama's model doesn't load on top of Whisper.
             self._worker.unload()
-            self._pron.unload()
             try:
                 text = generate(url, model, prompt, keep_alive=0)
                 self._emit("ollama_status", {"status": "done", "text": text})
@@ -643,45 +525,6 @@ def _setup_frozen_logging():
         pass
 
 
-def _selftest():
-    """Verify the bundled pronunciation stack: import torch/transformers, load
-    the model from cache, and run a tiny inference. Writes PASS/FAIL to the log.
-    Triggered with --selftest; used to validate the frozen build."""
-    import numpy as np
-
-    def step(name, fn):
-        try:
-            fn()
-            print(f"PASS  {name}", flush=True)
-            return True
-        except Exception as e:
-            print(f"FAIL  {name}: {type(e).__name__}: {e}", flush=True)
-            return False
-
-    print("=== pronunciation self-test ===", flush=True)
-    ok = True
-    ok &= step("import torch", lambda: __import__("torch"))
-    ok &= step("import transformers", lambda: __import__("transformers"))
-    ok &= step("import soundfile", lambda: __import__("soundfile"))
-
-    from pronunciation import PronunciationWorker
-    worker = PronunciationWorker()
-    ok &= step("load model", worker.load)
-
-    def infer():
-        import torch
-        # 1 second of quiet noise at 16kHz — exercises the full torch path.
-        audio = (np.random.randn(16000) * 0.01).astype("float32")
-        inputs = worker._fe(audio, sampling_rate=16000, return_tensors="pt", padding=True)
-        with torch.no_grad():
-            logits = worker._model(inputs.input_values).logits
-        assert logits.shape[-1] > 0
-
-    ok &= step("run inference", infer)
-    print("=== self-test", "PASSED" if ok else "FAILED", "===", flush=True)
-    sys.exit(0 if ok else 1)
-
-
 if __name__ == "__main__":
     # multiprocessing spawn (used by model_manager for cancellable downloads) will
     # re-import this module in the child process. freeze_support() is a no-op in
@@ -692,8 +535,6 @@ if __name__ == "__main__":
     if getattr(sys, "frozen", False):
         _setup_frozen_logging()
         try:
-            if "--selftest" in sys.argv:
-                _selftest()
             main()
         except SystemExit:
             raise

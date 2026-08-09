@@ -8,7 +8,6 @@ import {
   Check,
   X,
   FileAudio,
-  Mic2,
 } from "lucide-react";
 import type { SessionSummary } from "./api";
 
@@ -115,7 +114,7 @@ export function SessionsRail({
               <>
                 <div className="rail-item-main">
                   <span className="rail-item-title" title={s.title}>
-                    {s.has_pronunciation ? <Mic2 size={12} /> : <FileAudio size={12} />}
+                    <FileAudio size={12} />
                     <bdi dir="auto">{s.title}</bdi>
                   </span>
                   <span className="rail-item-meta">
