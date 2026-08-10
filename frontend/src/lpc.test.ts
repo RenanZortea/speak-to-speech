@@ -31,6 +31,24 @@ describe("LPC math", () => {
     expect(Math.abs(formants[0].frequency - 500) / 500).toBeLessThan(0.05);
     expect(Math.abs(formants[1].frequency - 1500) / 1500).toBeLessThan(0.05);
   });
+
+  it("recovers the closely spaced upper formants of Hebrew /i/", () => {
+    const rate = 10000;
+    const signal = new Float32Array(10000);
+    for (let i = 0; i < signal.length; i += 83) signal[i] = 1;
+    let filtered: Float32Array = signal;
+    for (const [frequency, bandwidth] of [[300, 60], [2670, 100], [3320, 150]])
+      filtered = resonator(filtered, rate, frequency, bandwidth);
+    const frame = filtered.slice(7000, 7205);
+    for (let i = 0; i < frame.length; i++) {
+      const previous = filtered[6999 + i] ?? 0;
+      frame[i] = (frame[i] - 0.97 * previous) * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (frame.length - 1)));
+    }
+    const formants = estimateFormants(frame, rate);
+    expect(Math.abs(formants[0].frequency - 300) / 300).toBeLessThan(0.25);
+    expect(Math.abs(formants[1].frequency - 2670) / 2670).toBeLessThan(0.05);
+    expect(Math.abs(formants[2].frequency - 3320) / 3320).toBeLessThan(0.05);
+  });
 });
 
 function resonator(input: Float32Array, rate: number, frequency: number, bandwidth: number): Float32Array {

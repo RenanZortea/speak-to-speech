@@ -7,6 +7,27 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+export function prepareFormantFrame(input: Float32Array, inputRate: number): { samples: Float32Array; sampleRate: number } {
+  const factor = Math.max(1, Math.round(inputRate / 10000));
+  const rate = inputRate / factor;
+  const sourceLength = Math.min(1024, input.length);
+  const output = new Float32Array(Math.floor(sourceLength / factor));
+  const start = input.length - sourceLength;
+  let previous = 0;
+  for (let i = 0; i < output.length; i++) {
+    const center = start + i * factor;
+    const radius = factor === 1 ? 0 : factor;
+    let sum = 0;
+    let count = 0;
+    for (let j = -radius; j <= radius; j++) if (center + j >= 0 && center + j < input.length) { sum += input[center + j]; count++; }
+    const sample = sum / count;
+    const emphasized = sample - 0.97 * previous;
+    previous = sample;
+    output[i] = emphasized * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (output.length - 1)));
+  }
+  return { samples: output, sampleRate: rate };
+}
+
 export class FormantTracker {
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
@@ -56,7 +77,7 @@ export class FormantTracker {
     if (Math.sqrt(power / this.frame.length) < 0.012) {
       this.onFrame(null);
     } else {
-      const processed = this.prepare(this.frame, this.context.sampleRate);
+      const processed = prepareFormantFrame(this.frame, this.context.sampleRate);
       const formants = estimateFormants(processed.samples, processed.sampleRate).slice(0, 3);
       if (formants.length === 3) {
         const values = formants.map((f) => f.frequency);
@@ -72,21 +93,4 @@ export class FormantTracker {
     this.animation = requestAnimationFrame(this.tick);
   };
 
-  private prepare(input: Float32Array, inputRate: number): { samples: Float32Array; sampleRate: number } {
-    const factor = Math.max(1, Math.round(inputRate / 10000));
-    const rate = inputRate / factor;
-    const output = new Float32Array(Math.floor(1024 / factor));
-    let previous = 0;
-    for (let i = 0; i < output.length; i++) {
-      const center = input.length - 1024 + i * factor;
-      let sum = 0;
-      let count = 0;
-      for (let j = -factor; j <= factor; j++) if (center + j >= 0 && center + j < input.length) { sum += input[center + j]; count++; }
-      const sample = sum / count;
-      const emphasized = sample - 0.97 * previous;
-      previous = sample;
-      output[i] = emphasized * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (output.length - 1)));
-    }
-    return { samples: output, sampleRate: rate };
-  }
 }

@@ -4,6 +4,7 @@ import { Pause, Play, Repeat, Volume1, Volume2, VolumeX } from "lucide-react";
 import { Waveform } from "./Waveform";
 import type { Segment } from "./api";
 import type { CorrectionView } from "./CodeTranscript";
+import type { TrackedFormants } from "./formantTracker";
 
 interface Props {
   url: string | null;
@@ -16,6 +17,9 @@ interface Props {
   hasCorrections: boolean;
   correctionView: CorrectionView;
   onCorrectionViewChange: (v: CorrectionView) => void;
+  onPlayingChange: (playing: boolean) => void;
+  onPlaybackFormants: (formants: TrackedFormants | null) => void;
+  analyzePlayback: boolean;
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
@@ -29,6 +33,9 @@ export function AudioBar({
   hasCorrections,
   correctionView,
   onCorrectionViewChange,
+  onPlayingChange,
+  onPlaybackFormants,
+  analyzePlayback,
 }: Props) {
   const wsRef = useRef<WaveSurfer | null>(null);
   const [duration, setDuration] = useState(0);
@@ -143,7 +150,9 @@ export function AudioBar({
           volume={volume}
           onReady={onReady}
           onTime={onTimeChange}
-          onPlayStateChange={setPlaying}
+          onPlayStateChange={(next) => { setPlaying(next); onPlayingChange(next); }}
+          onPlaybackFormants={onPlaybackFormants}
+          analyzePlayback={analyzePlayback}
         />
       </div>
 

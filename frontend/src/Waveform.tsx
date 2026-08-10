@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import WaveSurfer from "wavesurfer.js";
 import type { Segment } from "./api";
+import { analyzePlaybackFormants } from "./playbackFormants";
+import type { TrackedFormants } from "./formantTracker";
 
 interface Props {
   url: string | null;
@@ -10,6 +12,8 @@ interface Props {
   onReady: (ws: WaveSurfer, duration: number) => void;
   onTime: (t: number) => void;
   onPlayStateChange: (playing: boolean) => void;
+  onPlaybackFormants: (formants: TrackedFormants | null) => void;
+  analyzePlayback: boolean;
 }
 
 /**
@@ -19,10 +23,18 @@ interface Props {
  * Segment boundaries are rendered as thin vertical ticks on an absolutely-positioned
  * overlay div that sits on top of the waveform canvas.
  */
-export function Waveform({ url, segments, playbackRate, volume, onReady, onTime, onPlayStateChange }: Props) {
+export function Waveform({ url, segments, playbackRate, volume, onReady, onTime, onPlayStateChange, onPlaybackFormants, analyzePlayback }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const durationRef = useRef<number>(0);
+  const lastAnalysisRef = useRef(-1);
+  const smoothedRef = useRef<number[]>([]);
+  const analyzePlaybackRef = useRef(analyzePlayback);
+  analyzePlaybackRef.current = analyzePlayback;
+
+  useEffect(() => {
+    if (!analyzePlayback) onPlaybackFormants(null);
+  }, [analyzePlayback, onPlaybackFormants]);
 
   // (re)create wavesurfer when url changes
   useEffect(() => {
@@ -50,14 +62,27 @@ export function Waveform({ url, segments, playbackRate, volume, onReady, onTime,
       ws.setVolume(volume);
       onReady(ws, ws.getDuration());
     };
-    const onAudioProcess = (time: number) => onTime(time);
-    const onSeeking = (time: number) => onTime(time);
+    const emitFormants = (time: number, force = false) => {
+      if (!force && Math.abs(time - lastAnalysisRef.current) < 0.04) return;
+      lastAnalysisRef.current = time;
+      const decoded = ws.getDecodedData();
+      const measured = decoded ? analyzePlaybackFormants(decoded, time) : null;
+      if (!measured) { onPlaybackFormants(null); return; }
+      const values = [measured.f1, measured.f2, measured.f3].map((value, i) => {
+        const prior = smoothedRef.current[i];
+        return prior == null ? value : prior * 0.6 + value * 0.4;
+      });
+      smoothedRef.current = values;
+      onPlaybackFormants({ f1: values[0], f2: values[1], f3: values[2], voiced: true });
+    };
+    const onAudioProcess = (time: number) => { onTime(time); if (analyzePlaybackRef.current) emitFormants(time); };
+    const onSeeking = (time: number) => { onTime(time); smoothedRef.current = []; if (analyzePlaybackRef.current) emitFormants(time, true); };
     const onPlay = () => onPlayStateChange(true);
-    const onPause = () => onPlayStateChange(false);
+    const onPause = () => { onPlayStateChange(false); onPlaybackFormants(null); };
     // `finish` fires when playback reaches the end — wavesurfer does NOT emit
     // `pause` in that case, so without this the play/pause icon stays stuck on
     // "pause" after a track ends.
-    const onFinish = () => onPlayStateChange(false);
+    const onFinish = () => { onPlayStateChange(false); onPlaybackFormants(null); };
 
     ws.on("ready", onReadyHandler);
     ws.on("audioprocess", onAudioProcess);
@@ -68,6 +93,8 @@ export function Waveform({ url, segments, playbackRate, volume, onReady, onTime,
     ws.on("finish", onFinish);
 
     return () => {
+      onPlaybackFormants(null);
+      onPlayStateChange(false);
       ws.destroy();
       wsRef.current = null;
     };

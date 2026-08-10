@@ -41,6 +41,7 @@ import { SessionsRail } from "./SessionsRail";
 import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./Sidebar";
 import { VowelStudio } from "./VowelStudio";
+import type { TrackedFormants } from "./formantTracker";
 
 type AppStatus =
   | { kind: "checking" }
@@ -62,6 +63,10 @@ export function App() {
   const [audio, setAudio] = useState<{ path: string; url: string } | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [playbackFormants, setPlaybackFormants] = useState<TrackedFormants | null>(null);
+  const mainViewRef = useRef(mainView);
+  mainViewRef.current = mainView;
   const [temperature, setTemperature] = useState(0);
   const [models, setModels] = useState<CatalogModel[]>([]);
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
@@ -107,6 +112,10 @@ export function App() {
   const seekRef = useRef<((t: number) => void) | null>(null);
   const registerSeek = useCallback((fn: ((t: number) => void) | null) => {
     seekRef.current = fn;
+  }, []);
+  const handlePlaybackFormants = useCallback((formants: TrackedFormants | null) => {
+    // LPC updates are frequent; don't rerender the transcript while audio plays.
+    if (mainViewRef.current === "vowels" || formants === null) setPlaybackFormants(formants);
   }, []);
 
   const refreshModels = useCallback(async () => {
@@ -215,6 +224,8 @@ export function App() {
 
   const startTranscribe = (path: string, url: string) => {
     setAudio({ path, url });
+    setAudioPlaying(false);
+    setPlaybackFormants(null);
     setSegments([]);
     setCurrentTime(0);
     setDetectedLanguage(null);
@@ -263,6 +274,8 @@ export function App() {
     setSegments(sess.segments);
     setAudioDuration(sess.duration ?? 0);
     setCurrentTime(0);
+    setAudioPlaying(false);
+    setPlaybackFormants(null);
     if (sess.audio_url) {
       setAudio({ path: sess.audio_stored_path ?? "", url: sess.audio_url });
     }
@@ -515,17 +528,20 @@ export function App() {
             <button className={`tab ${mainView === "transcript" ? "active" : ""}`} onClick={() => setMainView("transcript")}>Transcript</button>
             <button className={`tab ${mainView === "vowels" ? "active" : ""}`} onClick={() => setMainView("vowels")}>Vowels</button>
           </nav>
+          <AudioBar
+            url={audio?.url ?? null}
+            segments={segments}
+            currentTime={currentTime}
+            onTimeChange={setCurrentTime}
+            registerSeek={registerSeek}
+            hasCorrections={corrections.length > 0}
+            correctionView={correctionView}
+            onCorrectionViewChange={setCorrectionView}
+            onPlayingChange={setAudioPlaying}
+            onPlaybackFormants={handlePlaybackFormants}
+            analyzePlayback={mainView === "vowels"}
+          />
           {mainView === "transcript" ? <>
-            <AudioBar
-              url={audio?.url ?? null}
-              segments={segments}
-              currentTime={currentTime}
-              onTimeChange={setCurrentTime}
-              registerSeek={registerSeek}
-              hasCorrections={corrections.length > 0}
-              correctionView={correctionView}
-              onCorrectionViewChange={setCorrectionView}
-            />
             <CodeTranscript
               segments={segments}
               corrections={corrections}
@@ -535,7 +551,7 @@ export function App() {
               onSeek={handleSeek}
               onRequestContextMenu={handleRequestContextMenu}
             />
-          </> : <VowelStudio />}
+          </> : <VowelStudio playbackFormants={playbackFormants} playbackActive={audioPlaying} hasRecording={!!audio} languageHint={detectedLanguage ?? activeLanguage} />}
         </main>
       </div>
 

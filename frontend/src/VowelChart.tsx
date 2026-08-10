@@ -46,11 +46,16 @@ export function VowelChart({ vowels, cursor, live, target, practice, onCursorCha
     <rect x={PAD} y={PAD} width={W - 2 * PAD} height={H - 2 * PAD} className="vowel-plot-bg" />
     {ticks.f1.map((f) => { const [, y] = xy({ f1: f, f2: 1000 }); return <g key={`f1-${f}`}><line x1={PAD} x2={W-PAD} y1={y} y2={y} className="vowel-grid"/><text x={PAD-10} y={y+4} textAnchor="end" className="vowel-axis-label">{f}</text></g>; })}
     {ticks.f2.map((f) => { const [x] = xy({ f1: 500, f2: f }); return <g key={`f2-${f}`}><line x1={x} x2={x} y1={PAD} y2={H-PAD} className="vowel-grid"/><text x={x} y={H-PAD+22} textAnchor="middle" className="vowel-axis-label">{f}</text></g>; })}
-    <text x={W/2} y={H-8} textAnchor="middle" className="vowel-axis-title">F2 (Hz) · front ←</text>
-    <text transform={`translate(16 ${H/2}) rotate(-90)`} textAnchor="middle" className="vowel-axis-title">F1 (Hz) · open →</text>
+    <text x={W/2} y={H-8} textAnchor="middle" className="vowel-axis-title">F2 (Hz) · more front ← · more back →</text>
+    <text transform={`translate(16 ${H/2}) rotate(-90)`} textAnchor="middle" className="vowel-axis-title">F1 (Hz)</text>
+    <text x={24} y={H-PAD-2} textAnchor="middle" className="vowel-axis-title">open ↓</text>
+    {(practice || live) && <g className="vowel-legend" transform={`translate(${W-PAD-142} 26)`}>
+      {practice && <><circle cx="7" cy="7" r="6" className="vowel-legend-reference"/><circle cx="7" cy="7" r="11" className="vowel-legend-target"/><text x="23" y="11">target</text></>}
+      <circle cx={practice ? 79 : 7} cy="7" r="7" className="vowel-legend-live"/><text x={practice ? 91 : 20} y="11">{practice ? "you" : "recording"}</text>
+    </g>}
     {vowels.map((vowel) => { const [x,y] = xy(vowel); const selected = target?.ipa === vowel.ipa; return <g key={vowel.ipa} className={`vowel-reference ${practice ? "selectable" : ""}`} onPointerDown={(e) => { if (practice) { e.stopPropagation(); onTarget(vowel); } }}><circle cx={x} cy={y} r={selected ? 12 : 7}/><text x={x+10} y={y-10}>{vowel.ipa}</text></g>; })}
     {target && (() => { const [x,y] = xy(target); return <circle cx={x} cy={y} r={18} className="vowel-target"/>; })()}
-    {!practice && <circle cx={cx} cy={cy} r={9} className="vowel-cursor"/>}
+    {!practice && !live && <circle cx={cx} cy={cy} r={9} className="vowel-cursor"/>}
     {live && (() => { const [x,y] = xy(live); return <circle cx={x} cy={y} r={10} className="vowel-live"/>; })()}
   </svg>;
 }

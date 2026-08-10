@@ -265,6 +265,7 @@ export function CodeTranscript({
           activeField,
           tip,
           editorTheme,
+          EditorView.lineWrapping,
           EditorView.editable.of(false),
           EditorState.readOnly.of(true),
           EditorView.contentAttributes.of({ dir: "rtl", lang: "he" }),
