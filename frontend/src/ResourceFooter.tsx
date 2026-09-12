@@ -1,4 +1,5 @@
 import { Cpu, MemoryStick, Gauge, Settings, HardDrive, ArrowUpCircle, X } from "lucide-react";
+import { AudioDeviceSettings } from "./AudioDeviceSettings";
 import type { ResourceStats } from "./api";
 
 interface Props {
@@ -78,13 +79,16 @@ export function ResourceFooter({
         </span>
       )}
 
+      <div className="res-footer-actions">
+      <AudioDeviceSettings />
       <button
-        className={`res-settings ${updateAvailable ? "" : "ml-auto"}`}
+        className="res-settings"
         onClick={onOpenSettings}
         title="Resource settings"
       >
         <Settings size={14} />
       </button>
+      </div>
     </footer>
   );
 }

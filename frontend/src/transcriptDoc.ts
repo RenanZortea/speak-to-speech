@@ -47,3 +47,9 @@ export function buildTranscriptDoc(segments: Segment[]): {
 
   return { text, words, segs };
 }
+
+/** Prefer visible letters over another word's trailing caret boundary. */
+export function transcriptWordAt(words: DocWord[], position: number): DocWord | undefined {
+  return words.find((word) => position >= word.markFrom && position < word.to)
+    ?? words.find((word) => position >= word.from && position < word.to);
+}

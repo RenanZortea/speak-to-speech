@@ -4,6 +4,8 @@ import { api, type Settings, type UpdateInfo } from "./api";
 
 interface Props {
   onClose: () => void;
+  autoSaveAudio: boolean;
+  onAutoSaveAudioChange: (v: boolean) => void;
   seekInCorrected: boolean;
   onSeekInCorrectedChange: (v: boolean) => void;
   updateInfo: UpdateInfo | null;
@@ -14,6 +16,8 @@ interface Props {
 
 export function SettingsModal({
   onClose,
+  autoSaveAudio,
+  onAutoSaveAudioChange,
   seekInCorrected,
   onSeekInCorrectedChange,
   updateInfo,
@@ -75,14 +79,17 @@ export function SettingsModal({
   const anyLoaded = settings?.whisper_loaded ?? false;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onPointerDown={(event) => {
+      // Dismiss only presses that start outside, never a text-selection drag.
+      if (event.button === 0 && event.target === event.currentTarget) onClose();
+    }}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} title="Close (Esc)">
           <X size={18} />
         </button>
-        <h2>Resources &amp; performance</h2>
+        <h2>Settings</h2>
         <p className="modal-sub">
-          Control how much of your machine SpeakToSpeech uses.
+          Manage recordings, playback, and resource usage.
         </p>
 
         {!settings ? (
@@ -91,6 +98,18 @@ export function SettingsModal({
           </div>
         ) : (
           <div className="settings-body">
+            <section className="settings-row">
+              <label className="settings-toggle">
+                <input type="checkbox" checked={autoSaveAudio}
+                  onChange={(e) => onAutoSaveAudioChange(e.target.checked)} />
+                <span className="settings-label">Auto-save every audio</span>
+              </label>
+              <p className="settings-hint">
+                Save the current audio and transcript to Sessions before starting a new
+                recording or clearing it with the trash icon. Main tab only; excludes
+                YouTube. Audio without a transcript is saved too.
+              </p>
+            </section>
             <section className="settings-row">
               <label className="settings-toggle">
                 <input

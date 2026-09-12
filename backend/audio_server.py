@@ -17,7 +17,7 @@ import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 DEFAULT_RECORDINGS_DIR = Path.home() / "SpeakToSpeech" / "recordings"
@@ -90,7 +90,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
         save_dir = self.server_ref.recordings_dir
         save_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        # Include microseconds: two short recordings can otherwise finish in the
+        # same second and overwrite each other while the first is being decoded.
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         out_path = save_dir / f"recording-{ts}.{ext}"
         raw_path = save_dir / f"recording-{ts}.{ext}.raw"
 
@@ -120,7 +122,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if urlsplit(self.path).path != "/audio":
             self.send_error(404)
             return
-        path = self.server_ref.current_path
+        token = parse_qs(urlsplit(self.path).query).get("v", [None])[0]
+        path = self.server_ref.path_for_token(token)
         if not path or not os.path.isfile(path):
             self.send_error(404, "no audio selected")
             return
@@ -198,7 +201,8 @@ class AudioServer:
         self.current_path = None
         self.recordings_dir = Path(recordings_dir)
         self._port = None
-        self._token = secrets.token_hex(4)
+        self._token = secrets.token_hex(16)
+        self._paths = {}
 
     @property
     def url(self):
@@ -212,7 +216,12 @@ class AudioServer:
 
     def set_audio(self, path: str):
         self.current_path = path
-        self._token = secrets.token_hex(4)
+        self._token = secrets.token_hex(16)
+        self._paths[self._token] = path
+
+    def path_for_token(self, token):
+        # Old URLs retain their file identity for other workspaces and range seeks.
+        return self._paths.get(token) if token is not None else self.current_path
 
     def start(self):
         server_ref = self

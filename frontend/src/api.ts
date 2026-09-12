@@ -192,7 +192,37 @@ async function ready(): Promise<any> {
   return window.pywebview.api;
 }
 
+export type NativeAudioDevices = {
+  supported: boolean;
+  capture?: boolean;
+  error?: string;
+  inputs?: { id: string; label: string }[];
+  outputs?: { id: string; label: string }[];
+};
+
 export const api = {
+  async getAudioDevices(): Promise<NativeAudioDevices> {
+    const bridge = await ready();
+    if (typeof bridge.get_audio_devices !== "function") {
+      throw new Error("The running backend predates audio capture support. Close the app and restart ./scripts/dev.sh; a page refresh is not enough.");
+    }
+    return bridge.get_audio_devices();
+  },
+  async setAudioOutput(device: string): Promise<void> {
+    await (await ready()).set_audio_output(device);
+  },
+  async startAudioRecording(mode: string, microphone: string, desktop: string): Promise<void> {
+    await (await ready()).start_audio_recording(mode, microphone, desktop);
+  },
+  async pauseAudioRecording(paused: boolean): Promise<void> {
+    await (await ready()).pause_audio_recording(paused);
+  },
+  async audioRecordingStatus(): Promise<{ recording?: boolean; error?: string }> {
+    return (await ready()).audio_recording_status();
+  },
+  async stopAudioRecording(discard: boolean): Promise<{ path: string; url: string } | null> {
+    return (await ready()).stop_audio_recording(discard);
+  },
   async checkModel(): Promise<ModelCheck> {
     return (await ready()).check_model();
   },

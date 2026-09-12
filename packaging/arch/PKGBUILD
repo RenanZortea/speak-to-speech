@@ -16,7 +16,7 @@ license=('MIT')
 # gst-plugins-{base,good} + gst-libav supply the GStreamer encoders WebKitGTK's
 # MediaRecorder needs (opus/vorbis+webmmux, or aac+qtmux). Without them, in-app
 # recording fails at start() with "MediaRecorder unsupported on this platform".
-depends=('webkit2gtk-4.1' 'gtk3' 'ffmpeg'
+depends=('webkit2gtk-4.1' 'gtk3' 'ffmpeg' 'libpulse'
          'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
 makedepends=('python311' 'python-gobject' 'cairo' 'gobject-introspection' 'nodejs' 'npm' 'git')
 options=('!strip')  # prebuilt CUDA/torch wheels aren't ours to strip
@@ -24,10 +24,16 @@ options=('!strip')  # prebuilt CUDA/torch wheels aren't ours to strip
 _reporoot() { git -C "$startdir" rev-parse --show-toplevel; }
 
 prepare() {
-  # Snapshot only tracked files (skips .venv/, node_modules/, dist/, sessions).
+  # Snapshot the current working tree, including uncommitted edits, while still
+  # respecting .gitignore (skips .venv/, node_modules/, dist/, sessions).
+  # This is a local development package, so installing should never silently
+  # fall back to the last commit instead of the code the user just tested.
+  local reporoot; reporoot="$(_reporoot)"
   rm -rf "$srcdir/$pkgname"
   mkdir -p "$srcdir/$pkgname"
-  git -C "$(_reporoot)" archive HEAD | tar -x -C "$srcdir/$pkgname"
+  git -C "$reporoot" ls-files -z --cached --others --exclude-standard \
+    | tar -C "$reporoot" --null -T - -cf - \
+    | tar -x -C "$srcdir/$pkgname"
 }
 
 build() {

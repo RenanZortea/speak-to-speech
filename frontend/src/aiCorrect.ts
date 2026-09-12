@@ -29,6 +29,7 @@ Rules:
 - Keep "explanation" to one short sentence.
 - "category" must be one of: ${cats}
 - Respond with ONLY a JSON object — no prose, no markdown fences.
+- Escape double quotes inside string values, or use single quotes for quoted words.
 
 Input:
 ${JSON.stringify(input, null, 2)}
@@ -58,7 +59,23 @@ export function parseAiJson(text: string): unknown {
   if (start === -1 || end === -1 || end < start) {
     throw new Error("Couldn't find a JSON object in the pasted text.");
   }
-  return JSON.parse(t.slice(start, end + 1));
+  const json = t.slice(start, end + 1);
+  try {
+    return JSON.parse(json);
+  } catch {
+    // Some tutor replies put bare quoted words inside explanations. Repair only
+    // that prose field; never guess changes to source quotes or replacements.
+    const repaired = json.replace(
+      /("explanation"\s*:\s*")((?:\\[\s\S]|[^\\])*?)("\s*(?=}|,\s*"[^"\\]+"\s*:))/g,
+      (_match, prefix: string, body: string, suffix: string) =>
+        prefix + body.replace(/\\[\s\S]|"/g, (token: string) => token === '"' ? '\\"' : token) + suffix,
+    );
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      throw new Error('Invalid correction JSON. Check missing commas or braces, and escape quotes inside text (for example, \\"be\\") or use single quotes.');
+    }
+  }
 }
 
 export type UnplacedCorrection = { segment: number; original: string };

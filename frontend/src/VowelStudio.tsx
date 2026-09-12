@@ -47,8 +47,11 @@ export function VowelStudio({ playbackFormants, playbackActive, hasRecording, la
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (mode !== "practice" || playbackActive || event.code !== "Space" || event.repeat || !target || isEditable(event.target)) return;
-      event.preventDefault(); tracker.current?.suspend(); synth.current.setFormants(target); void synth.current.start();
+      if (mode !== "practice" || playbackActive || event.code !== "Space" || !target || isEditable(event.target)) return;
+      // Held keys repeat: suppress scrolling on every event, but start audio once.
+      event.preventDefault();
+      if (event.repeat) return;
+      tracker.current?.suspend(); synth.current.setFormants(target); void synth.current.start();
     };
     const up = (event: KeyboardEvent) => {
       if (event.code !== "Space" || mode !== "practice") return;
@@ -63,30 +66,46 @@ export function VowelStudio({ playbackFormants, playbackActive, hasRecording, la
   const close = !!delta && Math.abs(delta.f1) <= target!.f1 * 0.1 && Math.abs(delta.f2) <= target!.f2 * 0.1;
   const guidance = target && delta ? articulatoryGuidance(delta, target) : [];
   return <div className="vowel-studio">
+    <header className="vowel-heading">
+      <h1>Vowels</h1>
+      <p>Explore a sound. Find your voice.</p>
+    </header>
     <div className="vowel-toolbar">
-      <div className="segmented"><button className={mode === "explore" ? "active" : ""} onClick={() => setMode("explore")}>Explore</button><button className={mode === "practice" ? "active" : ""} onClick={() => setMode("practice")}>Practice</button></div>
-      {hasRecording && <span className={`playback-analysis-state ${playbackActive ? "active" : ""}`}>{playbackActive ? "Analyzing recording…" : "Play the recording above to analyze it"}</span>}
-      <label>Overlay <select value={language} onChange={(e) => { setLanguage(e.target.value as VowelLanguage); setTarget(null); }}><option value="en">General American English</option><option value="he">Modern Israeli Hebrew</option><option value="ar-Jerusalem">Palestinian Arabic (Jerusalem)</option><option value="pt-BR">Brazilian Portuguese</option></select></label>
-      <div className="segmented"><button className={sex === "m" ? "active" : ""} onClick={() => { setSex("m"); setTarget(null); }}>♂</button><button className={sex === "f" ? "active" : ""} onClick={() => { setSex("f"); setTarget(null); }}>♀</button></div>
+      <div className="segmented"><button aria-pressed={mode === "explore"} className={mode === "explore" ? "active" : ""} onClick={() => setMode("explore")}>Explore</button><button aria-pressed={mode === "practice"} className={mode === "practice" ? "active" : ""} onClick={() => setMode("practice")}>Practice</button></div>
+      <label><span>Language</span> <select value={language} onChange={(e) => { setLanguage(e.target.value as VowelLanguage); setTarget(null); }}><option value="en">General American English</option><option value="he">Modern Israeli Hebrew</option><option value="ar-Jerusalem">Palestinian Arabic (Jerusalem)</option><option value="pt-BR">Brazilian Portuguese</option></select></label>
+      <div className="segmented"><button aria-label="Male reference voice" aria-pressed={sex === "m"} className={sex === "m" ? "active" : ""} onClick={() => { setSex("m"); setTarget(null); }}>Male</button><button aria-label="Female reference voice" aria-pressed={sex === "f"} className={sex === "f" ? "active" : ""} onClick={() => { setSex("f"); setTarget(null); }}>Female</button></div>
     </div>
     <div className="vowel-workspace">
+      <div className="vowel-stage">
+      <p className="vowel-instruction">{playbackActive ? "Follow the vowels in your recording" : mode === "explore" ? "Drag across the chart to hear a vowel" : "Choose a vowel, then speak to match it"}</p>
       <VowelChart vowels={vowels} cursor={formants} live={displayedLive} target={target} practice={mode === "practice"}
         onCursorChange={(p) => setFormants((old) => ({ ...old, f1: Math.round(p.f1), f2: Math.round(p.f2) }))}
         onDragStart={() => void synth.current.start()} onDragEnd={() => synth.current.stop()}
         onTarget={(vowel) => { setTarget(vowel); setFormants({ f1: vowel.f1, f2: vowel.f2, f3: vowel.f3 }); }} />
-      <aside className="vowel-controls">
+      {hasRecording && <p className={`playback-analysis-state ${playbackActive ? "active" : ""}`} role="status">{playbackActive ? "Analyzing recording…" : "Play your recording to see its vowels here"}</p>}
+      </div>
+      <aside className="vowel-controls" aria-label="Vowel sound controls">
         <h2>{playbackActive ? <><Volume2 size={18}/> Recording analysis</> : mode === "explore" ? <><Volume2 size={18}/> Vowel synth</> : <><Mic size={18}/> Match the target</>}</h2>
+        <div className="vowel-primary-controls">
         <Slider label="Volume" value={volume * 100} min={0} max={150} step={1} unit="%" onChange={(value) => setVolume(value / 100)}/>
+        <Slider label="Pitch" value={pitch} min={70} max={260} unit="Hz" onChange={setPitch}/>
+        </div>
         {playbackActive && mode === "explore" && <div className="practice-readout"><strong>Recorded audio</strong>{displayedLive ? <code>F1 {Math.round(displayedLive.f1)} · F2 {Math.round(displayedLive.f2)} · F3 {Math.round(displayedLive.f3)} Hz</code> : <span>No measurable vowel in this frame</span>}<span>Loop a word or vowel for a steadier reading.</span></div>}
         {mode === "practice" && <div className={`practice-readout ${close ? "close" : ""}`}><strong>{target ? `/${target.ipa}/ ${target.keyword ?? ""}` : "Choose a vowel on the chart"}</strong>{target && !playbackActive && <span>Hold Space to hear · release to speak</span>}{displayedLive && <code>{playbackActive ? "Recording" : "Live"} F1 {Math.round(displayedLive.f1)} · F2 {Math.round(displayedLive.f2)} · F3 {Math.round(displayedLive.f3)} Hz</code>}{delta && <code>ΔF1 {signed(delta.f1)} Hz<br/>ΔF2 {signed(delta.f2)} Hz</code>}{guidance.map((hint) => <span className="vowel-guidance" key={hint}>{hint}</span>)}{micError && <span className="vowel-error">Mic: {micError}</span>}</div>}
-        <Slider label="Pitch" value={pitch} min={70} max={260} unit="Hz" onChange={setPitch}/>
+        <details className="vowel-adjustments">
+          <summary>Sound adjustments <span>F1 · F2 · F3</span></summary>
+          <div className="vowel-formant-controls">
         <Slider label="F1" value={formants.f1} min={200} max={1100} unit="Hz" onChange={(f1) => setFormants((v) => ({...v, f1}))}/>
         <Slider label="F2" value={formants.f2} min={600} max={3000} unit="Hz" onChange={(f2) => setFormants((v) => ({...v, f2}))}/>
         <Slider label="F3" value={formants.f3} min={1500} max={3800} unit="Hz" onChange={(f3) => setFormants((v) => ({...v, f3}))}/>
+          </div>
+        </details>
+      </aside>
+      <footer className="vowel-notes">
         {language === "he" && <p className="vowel-caveat">Hebrew targets are based on 6 speakers per group and isolated vowels; connected speech is usually more central.</p>}
         {language === "ar-Jerusalem" && <p className="vowel-caveat">Jerusalem approximation: short and long vowel targets are pooled from 80 central/northern Palestinian Arabic speakers; Jerusalem-specific norms were not available. F3 is a synthesis default.</p>}
         {language === "pt-BR" && <p className="vowel-caveat">Brazilian Portuguese targets are based on sustained vowels from 23 speakers per group; connected speech varies by stress and dialect.</p>}
-      </aside>
+      </footer>
     </div>
   </div>;
 }

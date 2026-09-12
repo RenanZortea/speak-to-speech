@@ -36,6 +36,7 @@ couldn't say*. Concretely that means:
 ## Features
 
 - **Transcribe**: pick an audio file, or record from your mic (auto-saves under `~/SpeakToSpeech/recordings/`)
+- **YouTube shadowing**: open YouTube mode, paste a video URL, and load/play it. Press Record in the Source panel to shadow with your microphone; Stop saves and transcribes your take. Headphones help prevent video audio bleeding into the recording. Supports watch, share, Shorts, live, and timestamped links. Requires internet and a video that allows embedding. Closing YouTube mode stops video playback; the microphone controls remain independent.
 - **Waveform** with click-to-seek, segment ticks overlaid as you transcribe
 - **Playback controls**: play/pause, 0.5× – 1.5× speed, volume + mute, loop current segment
 - **Hebrew typography** (Heebo) with RTL transcript rendering
@@ -96,6 +97,17 @@ cd ..
 
 ## Run (dev mode)
 
+On Linux, start both the Vite frontend and the desktop backend with:
+
+```bash
+./scripts/dev.sh
+```
+
+The launcher uses `.venv/bin/python`, waits for Vite, and opens the desktop window
+needed for recording and transcription. It reuses an existing SpeakToSpeech Vite
+server. Closing the window stops any server started by the launcher; an existing
+server is left running. Set `SPEAKTOSPEECH_PYTHON` to override the Python path.
+
 Two terminals. Vite serves the frontend with hot reload; pywebview points at it.
 
 **Terminal 1 — frontend:**
@@ -123,11 +135,28 @@ cd ..
 
 ## Linux setup (Arch tested)
 
+To install the current checkout as a desktop app on Arch Linux:
+
+```bash
+./scripts/install.sh
+```
+
+Run as your normal user. The script requests sudo when installing system
+packages, builds the app with the existing local Arch package, and installs an
+application-menu entry and the `speaktospeech` command. It includes uncommitted
+changes. Python 3.11 is installed through `paru` or `yay` if needed; without an
+AUR helper, install `python311` first. Downloads can total several GB.
+Use `./scripts/install.sh --check` to check prerequisites without changing
+anything. Re-run the installer to update; remove the app with
+`sudo pacman -R speaktospeech`. Models and recordings remain in your home folder.
+
+For a development environment instead, follow the manual steps below.
+
 Same app, run from source. On Arch:
 
 ```bash
 # System deps: WebKitGTK for the pywebview window, Python 3.11 from the AUR
-sudo pacman -S webkit2gtk-4.1 ffmpeg
+sudo pacman -S webkit2gtk-4.1 ffmpeg libpulse
 paru -S python311   # or any AUR helper
 
 git clone https://github.com/RenanZortea/speak-to-speech.git
@@ -263,3 +292,25 @@ MIT — see [LICENSE](LICENSE).
 - [pywebview](https://pywebview.flowrl.com/) for the native window + JS bridge
 - [wavesurfer.js](https://wavesurfer-js.org/) for the waveform rendering
 - [Lucide](https://lucide.dev/) for the icons
+
+### Recording a conversation
+
+Open the microphone icon in the bottom-right corner and choose **Microphone**,
+**Desktop audio**, or **Desktop + microphone**. On Linux, choose the desktop
+output your conversation app plays through, and choose your microphone for the
+combined mode. Headphones avoid recording the remote voice again through your
+microphone. Changes apply to the next recording; Stop prepares the audio for
+playback/transcription, and Discard removes it.
+
+The Linux desktop app uses PipeWire's PulseAudio service (or PulseAudio), `pactl`
+from `libpulse`, and `ffmpeg`. The speaker icon routes this app's playback,
+including embedded video, without changing other applications or system defaults.
+Native recordings show elapsed time; the live waveform preview is available for
+browser recording streams. Restart the desktop app after updating the backend.
+
+Other environments use the browser's audio APIs. Desktop recording asks you to
+share a screen or tab with audio enabled; [audio capture availability depends on
+the browser and selected source](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia).
+If no audio track is shared, recording stops with an explanation. Browser speaker
+selection applies to recorded/imported audio and reports permission or device
+errors before saving a choice.

@@ -1,13 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { bindPlaybackLoop } from "./playbackLoop";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Pause, Play, Repeat, Volume1, Volume2, VolumeX } from "lucide-react";
+import { AudioLines, FileText, Pause, Play, Trash2, Volume1, Volume2, VolumeX } from "lucide-react";
+import { playAudio } from "./playAudio";
 import { Waveform } from "./Waveform";
 import type { Segment } from "./api";
 import type { CorrectionView } from "./CodeTranscript";
 import type { TrackedFormants } from "./formantTracker";
 
 interface Props {
+  onClear?: () => void;
+  clearDisabled?: boolean;
+  transcriptionRequest?: number;
+  compact?: boolean;
+  compactStage?: boolean;
+  actions?: ReactNode;
+  stage?: ReactNode;
+  showStage?: boolean;
   url: string | null;
+  /** Changes whenever /audio points at a different file, even though its URL is stable. */
+  sourceKey: number;
   segments: Segment[];
   currentTime: number;
   onTimeChange: (t: number) => void;
@@ -22,10 +34,19 @@ interface Props {
   analyzePlayback: boolean;
 }
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
+const SPEEDS = [0.5, 0.75, 1];
 
 export function AudioBar({
+  onClear,
+  clearDisabled = false,
+  transcriptionRequest = 0,
+  compact = false,
+  compactStage = false,
+  actions,
+  stage,
+  showStage = false,
   url,
+  sourceKey,
   segments,
   currentTime,
   onTimeChange,
@@ -38,12 +59,19 @@ export function AudioBar({
   analyzePlayback,
 }: Props) {
   const wsRef = useRef<WaveSurfer | null>(null);
+  const loopCleanupRef = useRef<(() => void) | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const play = (ws: WaveSurfer) => { void playAudio(ws).catch((e: Error) => setError(e.message)); };
   const [duration, setDuration] = useState(0);
+  const [playerView, setPlayerView] = useState<"waveform" | "transcript">("waveform");
+  const displayStage = showStage && playerView === "transcript";
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [volume, setVolume] = useState(1);
   const prevVolumeRef = useRef(1);
-  const [loopSeg, setLoopSeg] = useState<Segment | null>(null);
+  const [loopSeg, setLoopSeg] = useState<Pick<Segment, "start" | "end"> | null>(null);
 
   const toggleMute = () => {
     if (volume > 0) {
@@ -60,48 +88,61 @@ export function AudioBar({
   useEffect(() => {
     registerSeek((t: number) => {
       const ws = wsRef.current;
-      if (!ws) return;
+      if (!ws || !ws.getDuration()) {
+        pendingSeekRef.current = t;
+        return;
+      }
+      loopCleanupRef.current?.();
+      loopCleanupRef.current = null;
+      setLoopSeg(null);
       ws.setTime(t);
-      void ws.play();
+      play(ws);
     });
     return () => registerSeek(null);
   }, [registerSeek]);
 
+  // The child owns instance creation and invalidation, including StrictMode cleanup.
+  const onInstance = (instance: WaveSurfer | null) => {
+    wsRef.current = instance;
+    setDuration(0);
+    setPlaying(false);
+    setLoopSeg(null);
+    if (instance) setError(null);
+  };
+
   const onReady = (ws: WaveSurfer, dur: number) => {
     wsRef.current = ws;
     setDuration(dur);
+    const pendingSeek = pendingSeekRef.current;
+    if (pendingSeek != null) {
+      pendingSeekRef.current = null;
+      ws.setTime(pendingSeek);
+      play(ws);
+    } else if (currentTime > 0) {
+      ws.setTime(Math.min(currentTime, dur));
+    }
   };
 
-  // Loop logic: if loopSeg is set, snap back to its start when we cross its end.
   useEffect(() => {
-    if (!loopSeg) return;
-    if (currentTime >= loopSeg.end - 0.02) {
-      wsRef.current?.setTime(loopSeg.start);
-    }
-  }, [currentTime, loopSeg]);
+    if (transcriptionRequest > 0) setPlayerView("transcript");
+  }, [transcriptionRequest]);
+
+  useEffect(() => { setPlayerView("waveform"); }, [sourceKey]);
+
+  // Preserve the selection while the transcript is visible, but detach playback looping.
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || !loopSeg || displayStage) return;
+    const cleanup = bindPlaybackLoop(ws, loopSeg, () => play(ws));
+    loopCleanupRef.current = cleanup;
+    return () => { cleanup(); if (loopCleanupRef.current === cleanup) loopCleanupRef.current = null; };
+  }, [loopSeg, displayStage]);
 
   const togglePlay = () => {
     const ws = wsRef.current;
     if (!ws) return;
     if (ws.isPlaying()) ws.pause();
-    else void ws.play();
-  };
-
-  const activeIdx = segments.findIndex(
-    (s) => currentTime >= s.start && currentTime < s.end,
-  );
-  const activeSeg = activeIdx >= 0 ? segments[activeIdx] : null;
-  const loopOnActive = loopSeg != null && activeSeg != null && loopSeg.start === activeSeg.start;
-
-  const toggleLoop = () => {
-    if (loopOnActive) {
-      setLoopSeg(null);
-    } else if (activeSeg) {
-      setLoopSeg(activeSeg);
-      // jump to start of the segment for an immediate replay
-      wsRef.current?.setTime(activeSeg.start);
-      void wsRef.current?.play();
-    }
+    else play(ws);
   };
 
   if (!url) {
@@ -113,11 +154,53 @@ export function AudioBar({
   }
 
   return (
+    <section className={`audio-player ${compact ? "compact-player" : ""}`} aria-label="Audio player">
+      {!compact && <button className="player-view-toggle"
+        disabled={!showStage} onClick={() => setPlayerView(displayStage ? "waveform" : "transcript")}
+        title={displayStage ? "Show waveform" : "Show transcription"}
+        aria-label={displayStage ? "Show waveform" : "Show transcription"}>
+        {displayStage ? <AudioLines size={14} /> : <FileText size={14} />}
+      </button>}
+      <div className={`player-stage ${displayStage ? "show-content" : ""} ${compactStage ? "small-stage" : ""}`}>
+      <div className="ab-wave" aria-hidden={displayStage}>
+        <Waveform
+          key={retry}
+          onError={setError}
+          onInstance={onInstance}
+          url={url}
+          sourceKey={sourceKey}
+          loop={loopSeg}
+          onLoopChange={(region) => {
+            setLoopSeg(region);
+            if (region && wsRef.current) {
+              wsRef.current.setTime(region.start);
+              play(wsRef.current);
+            }
+          }}
+          segments={segments}
+          playbackRate={speed}
+          height={compactStage ? 64 : 280}
+          volume={volume}
+          onReady={onReady}
+          onTime={onTimeChange}
+          onPlayStateChange={(next) => { setPlaying(next); onPlayingChange(next); }}
+          onPlaybackFormants={onPlaybackFormants}
+          analyzePlayback={analyzePlayback}
+        />
+      </div>
+
+      <div className="player-stage-content">{stage}</div>
+      </div>
+      {error && <div className="rec-error" role="alert">Audio playback failed: {error}<button className="btn ghost" onClick={() => { setError(null); setRetry((n) => n + 1); }}>Retry audio</button></div>}
+      <div className="player-dock">
+      <div className="player-actions">{actions}</div>
     <div className="audio-bar">
       <button
         className="ab-btn ab-play"
         onClick={togglePlay}
-        title={playing ? "Pause (space)" : "Play (space)"}
+        title={playing ? "Pause" : "Play"}
+        aria-label={playing ? "Pause audio" : "Play audio"}
+        disabled={duration === 0}
       >
         {playing ? <Pause size={18} /> : <Play size={18} />}
       </button>
@@ -127,10 +210,12 @@ export function AudioBar({
           className="ab-vol-icon"
           onClick={toggleMute}
           title={volume === 0 ? "Unmute" : "Mute"}
+          aria-label={volume === 0 ? "Unmute" : "Mute"}
         >
           <VolumeIcon size={16} />
         </button>
         <input
+          aria-label="Volume"
           type="range"
           min={0}
           max={1}
@@ -142,31 +227,18 @@ export function AudioBar({
         />
       </div>
 
-      <div className="ab-wave">
-        <Waveform
-          url={url}
-          segments={segments}
-          playbackRate={speed}
-          volume={volume}
-          onReady={onReady}
-          onTime={onTimeChange}
-          onPlayStateChange={(next) => { setPlaying(next); onPlayingChange(next); }}
-          onPlaybackFormants={onPlaybackFormants}
-          analyzePlayback={analyzePlayback}
-        />
-      </div>
-
       <div className="ab-time">
         <span className="ab-time-cur">{fmt(currentTime)}</span>
         <span className="ab-time-sep">/</span>
         <span className="ab-time-dur">{fmt(duration)}</span>
       </div>
 
-      <div className="ab-speed" title="Playback speed">
+      <div className="ab-speed" role="group" aria-label="Playback speed">
         {SPEEDS.map((s) => (
           <button
             key={s}
             className={`ab-speed-btn ${speed === s ? "active" : ""}`}
+            aria-pressed={speed === s}
             onClick={() => setSpeed(s)}
           >
             {s}×
@@ -174,20 +246,10 @@ export function AudioBar({
         ))}
       </div>
 
-      <button
-        className={`ab-btn ab-loop ${loopOnActive ? "active" : ""}`}
-        onClick={toggleLoop}
-        disabled={!activeSeg}
-        title={
-          !activeSeg
-            ? "Position playback inside a segment to loop it"
-            : loopOnActive
-            ? "Stop looping"
-            : "Loop current segment"
-        }
-      >
-        <Repeat size={16} />
-      </button>
+      {onClear && <button type="button" className="ab-btn ab-clear"
+        aria-label="Clear recording" title="Clear recording" disabled={clearDisabled} onClick={onClear}>
+        <Trash2 size={16} />
+      </button>}
 
       {hasCorrections && (
         <div className="corr-toggle">
@@ -206,6 +268,8 @@ export function AudioBar({
         </div>
       )}
     </div>
+      </div>
+    </section>
   );
 }
 

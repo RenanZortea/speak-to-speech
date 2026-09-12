@@ -156,18 +156,26 @@ class WhisperWorker(ModelHost):
             from faster_whisper import WhisperModel
             from app_settings import get_models_dir
             from model_manager import model_size_on_disk
-            from resources import available_ram, free_vram
+            from resources import (
+                free_vram,
+                model_load_memory_budget,
+                reclaim_unused_process_memory,
+            )
 
             size = model_size_on_disk(model_id) or 3_000_000_000
 
             # Preflight host RAM. Reading model.bin needs ~its size in RAM before
             # it reaches VRAM; bail out with a clear message instead of thrashing.
-            avail = available_ram()
+            reclaim_unused_process_memory()
+            memory = model_load_memory_budget()
             need = int(size * 1.1) + _RAM_HEADROOM
-            if avail < need:
+            if memory.total_available < need:
                 raise MemoryError(
-                    f"Not enough free RAM to load this model safely "
-                    f"(~{need / 1e9:.1f} GB needed, {avail / 1e9:.1f} GB free). "
+                    f"Not enough free memory to load this model safely "
+                    f"(~{need / 1e9:.1f} GB needed, "
+                    f"{memory.ram_available / 1e9:.1f} GB RAM"
+                    + (f" + {memory.swap_available / 1e9:.1f} GB swap" if memory.swap_available else "")
+                    + " available). "
                     f"Close some apps (browser, etc.) and try again."
                 )
 

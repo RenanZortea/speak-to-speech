@@ -39,25 +39,6 @@ export function SessionsRail({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
-  if (collapsed) {
-    return (
-      <div className="sessions-rail collapsed">
-        <button className="rail-icon-btn" onClick={onToggleCollapsed} title="Show sessions">
-          <PanelLeftOpen size={18} />
-        </button>
-        <button
-          className="rail-icon-btn"
-          onClick={onSave}
-          disabled={!canSave}
-          title="Save current session"
-        >
-          <Save size={17} />
-          {hasUnsaved && canSave && <span className="unsaved-dot" />}
-        </button>
-      </div>
-    );
-  }
-
   const startRename = (s: SessionSummary) => {
     setEditingId(s.id);
     setDraft(s.title);
@@ -68,21 +49,25 @@ export function SessionsRail({
   };
 
   return (
-    <div className="sessions-rail">
+    <div className={`sessions-rail ${collapsed ? "collapsed" : ""}`}>
       <div className="rail-header">
-        <span className="rail-title">Sessions</span>
-        <button className="rail-icon-btn" onClick={onToggleCollapsed} title="Hide sessions">
-          <PanelLeftClose size={16} />
+        <button className="rail-icon-btn" onClick={onToggleCollapsed}
+          title={collapsed ? "Show sessions" : "Hide sessions"}
+          aria-label={collapsed ? "Show sessions" : "Hide sessions"}
+          aria-expanded={!collapsed} aria-controls="sessions-list">
+          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
+        <span className="rail-title">Sessions</span>
       </div>
 
-      <button className="btn primary rail-save" onClick={onSave} disabled={!canSave}>
+      <button className="rail-icon-btn rail-save" onClick={onSave} disabled={!canSave}
+        title="Save current session" aria-label="Save current session">
         <Save size={15} />
         <span>{hasUnsaved ? "Save session" : "Saved"}</span>
         {hasUnsaved && canSave && <span className="unsaved-dot" />}
       </button>
 
-      <div className="rail-list">
+      <div id="sessions-list" className="rail-list" aria-hidden={collapsed}>
         {sessions.length === 0 && (
           <div className="rail-empty">No saved sessions yet.</div>
         )}

@@ -83,7 +83,7 @@ class SessionStore:
         # Copy audio into app storage so the session is self-contained.
         stored_path = None
         src = data.get("audio_path")
-        if src and Path(src).is_file():
+        if src:
             sess_dir = self._sessions_dir / sid
             sess_dir.mkdir(parents=True, exist_ok=True)
             ext = Path(src).suffix or ".audio"
@@ -92,7 +92,8 @@ class SessionStore:
                 shutil.copy2(src, dest)
                 stored_path = str(dest)
             except Exception:
-                stored_path = None
+                shutil.rmtree(sess_dir, ignore_errors=True)
+                raise
 
         title = (data.get("title") or "").strip() or f"Session {now[:10]}"
         segments_json = json.dumps(data.get("segments") or [], ensure_ascii=False)

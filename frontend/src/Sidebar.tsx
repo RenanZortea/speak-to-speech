@@ -1,9 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  FolderOpen,
-  RotateCw,
   SlidersHorizontal,
-  FileAudio,
   Download,
   FileText,
   FileCode,
@@ -11,12 +8,10 @@ import {
   AlignLeft,
   Copy,
   Check,
-  Cpu,
   Languages,
   Settings2,
   Sparkles,
 } from "lucide-react";
-import { Recorder } from "./Recorder";
 import {
   api,
   type CatalogModel,
@@ -28,7 +23,6 @@ import type { Correction } from "./corrections";
 
 interface Props {
   audioPath: string | null;
-  serverUrl: string | null;
   busy: boolean;
   temperature: number;
   segments: Segment[];
@@ -39,18 +33,14 @@ interface Props {
   activeLanguage: string;
   detectedLanguage: string | null;
   onTemperatureChange: (t: number) => void;
-  onPick: () => void;
-  onRecordingReady: (path: string, url: string) => void;
-  onRetranscribe: () => void;
   onLanguageChange: (lang: string) => void;
   onModelChange: (modelId: string) => void;
   onOpenModelManager: () => void;
   onOpenAiCorrect: () => void;
 }
 
-export function Sidebar({
+export function WorkspaceToolbar({
   audioPath,
-  serverUrl,
   busy,
   temperature,
   segments,
@@ -61,14 +51,30 @@ export function Sidebar({
   activeLanguage,
   detectedLanguage,
   onTemperatureChange,
-  onPick,
-  onRecordingReady,
-  onRetranscribe,
   onLanguageChange,
   onModelChange,
   onOpenModelManager,
   onOpenAiCorrect,
 }: Props) {
+  const toolbarRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const closeMenus = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      toolbarRef.current?.querySelectorAll<HTMLDetailsElement>("details[open]").forEach((menu) => {
+        if (event instanceof KeyboardEvent || !menu.contains(event.target as Node)) {
+          menu.open = false;
+          if (event instanceof KeyboardEvent) menu.querySelector("summary")?.focus();
+        }
+      });
+    };
+    document.addEventListener("pointerdown", closeMenus);
+    document.addEventListener("keydown", closeMenus);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenus);
+      document.removeEventListener("keydown", closeMenus);
+    };
+  }, []);
+
   const [flash, setFlash] = useState<{ kind: "saved" | "copied"; detail: string } | null>(null);
 
   const showFlash = (kind: "saved" | "copied", detail: string) => {
@@ -110,26 +116,10 @@ export function Sidebar({
   const hasCorrections = corrections.length > 0;
 
   return (
-    <aside className="sidebar">
-      <Section title="Source" icon={<FileAudio size={14} />}>
-        <button className="btn primary" onClick={onPick} disabled={busy}>
-          <FolderOpen size={16} />
-          <span>{audioPath ? "Pick another file" : "Pick audio file"}</span>
-        </button>
-        <div className="sep">or</div>
-        <Recorder
-          serverUrl={serverUrl}
-          disabled={busy}
-          onRecordingReady={onRecordingReady}
-        />
-        {audioPath && (
-          <div className="current-file" title={audioPath}>
-            {fileName(audioPath)}
-          </div>
-        )}
-      </Section>
-
-      <Section title="Model" icon={<Cpu size={14} />}>
+    <section ref={toolbarRef} className="workspace-toolbar" aria-label="Recording and transcription controls">
+      <div className="workspace-actions">
+      <details className="toolbar-menu"><summary><SlidersHorizontal size={14} /> Settings</summary><div className="toolbar-popover">      <div className="transcription-selectors">
+        <div className="model-picker"><span className="opt-label">Transcription model</span>
         <ModelSection
           models={models}
           activeModelId={activeModelId}
@@ -138,7 +128,8 @@ export function Sidebar({
           onOpenModelManager={onOpenModelManager}
         />
 
-        <div className="opt">
+        </div>
+        <div className="language-picker">
           <div className="opt-head">
             <span className="opt-label">
               <Languages size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
@@ -152,6 +143,7 @@ export function Sidebar({
           </div>
           <select
             className="lang-select"
+            aria-label="Transcription language"
             value={activeLanguage}
             onChange={(e) => onLanguageChange(e.target.value)}
             disabled={busy}
@@ -167,15 +159,16 @@ export function Sidebar({
             model={models.find((m) => m.id === activeModelId)}
           />
         </div>
-      </Section>
+      </div>
 
-      <Section title="Options" icon={<SlidersHorizontal size={14} />}>
+
         <div className="opt">
           <div className="opt-head">
             <span className="opt-label">Temperature</span>
             <span className="opt-value">{temperature.toFixed(1)}</span>
           </div>
           <input
+            aria-label="Transcription temperature"
             type="range"
             min={0}
             max={1}
@@ -190,18 +183,7 @@ export function Sidebar({
           </p>
         </div>
 
-        <button
-          className="btn ghost"
-          onClick={onRetranscribe}
-          disabled={busy || !audioPath}
-          title="Re-run transcription with current options"
-        >
-          <RotateCw size={15} />
-          <span>Re-transcribe</span>
-        </button>
-      </Section>
-
-      <Section title="Corrections" icon={<Sparkles size={14} />}>
+      {canExport && <Section title="Corrections" icon={<Sparkles size={14} />}>
         <button
           className="btn ghost"
           onClick={onOpenAiCorrect}
@@ -214,9 +196,11 @@ export function Sidebar({
         <p className="opt-hint">
           Right-click any word to add a correction manually, or use any AI via copy-paste.
         </p>
-      </Section>
+      </Section>}
 
-      <Section title="Export" icon={<Download size={14} />}>
+      </div></details>
+
+      {canExport && <details className="toolbar-menu"><summary><Download size={14} /> Export</summary><div className="toolbar-popover">
         <div className="export-grid">
           <button
             className="btn ghost export-btn"
@@ -293,8 +277,8 @@ export function Sidebar({
             </span>
           </div>
         )}
-      </Section>
-    </aside>
+      </div></details>}
+</div>    </section>
   );
 }
 
@@ -326,13 +310,14 @@ function ModelSection({
     <>
       <select
         className="model-select"
+        aria-label="Transcription model"
         value={activeModelId}
         onChange={(e) => onModelChange(e.target.value)}
         disabled={busy}
       >
-        {selectable.length === 0 && (
+        {!selectable.some((m) => m.id === activeModelId) && (
           <option value={activeModelId} disabled>
-            (no models downloaded)
+            {active?.name ?? activeModelId} (unavailable)
           </option>
         )}
         {selectable.map((m) => (
@@ -408,9 +393,4 @@ function Section({
       <div className="sb-body">{children}</div>
     </section>
   );
-}
-
-function fileName(p: string): string {
-  const parts = p.split(/[/\\]/);
-  return parts[parts.length - 1] || p;
 }

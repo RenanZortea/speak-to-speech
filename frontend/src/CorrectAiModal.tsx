@@ -102,7 +102,10 @@ export function CorrectAiModal({
   const shownResult = result ?? (ollamaGen.status === "done" ? ollamaGen.result : null);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onPointerDown={(event) => {
+      // Dismiss only presses that start outside, never a text-selection drag.
+      if (event.button === 0 && event.target === event.currentTarget) onClose();
+    }}>
       <div className="modal ai-modal" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} title="Close (Esc)">
           <X size={18} />

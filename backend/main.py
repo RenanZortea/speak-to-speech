@@ -39,6 +39,7 @@ os.environ["HF_HUB_CACHE"] = str(app_settings.get_models_dir())
 import webview
 
 from audio_server import AudioServer
+from native_audio import NativeAudio
 from model_manager import (
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL_ID,
@@ -78,6 +79,7 @@ class Api:
     """Exposed to JS as `window.pywebview.api.<method>`."""
 
     def __init__(self):
+        self._native_audio = NativeAudio()
         self._resources = ResourceManager()
         self._worker = WhisperWorker(resource_manager=self._resources)
         self._jobs = JobLane(on_state=self._on_job_state)
@@ -125,7 +127,8 @@ class Api:
     def _emit(self, event: str, payload):
         if self._window is None:
             return
-        js = f"window.__emit({json.dumps(event)}, {json.dumps(payload)})"
+        # WebKit cannot marshal undefined results from fire-and-forget events.
+        js = f"window.__emit({json.dumps(event)}, {json.dumps(payload)}); null;"
         try:
             self._window.evaluate_js(js)
         except Exception:
@@ -239,6 +242,28 @@ class Api:
         return {"ok": self._sessions.delete_session(session_id)}
 
     # ---- Resources / settings ----
+
+    def get_audio_devices(self):
+        return self._native_audio.devices()
+
+    def set_audio_output(self, device=""):
+        return self._native_audio.set_output(device)
+
+    def start_audio_recording(self, mode, microphone="", desktop=""):
+        return self._native_audio.start(mode, microphone, desktop)
+
+    def pause_audio_recording(self, paused=True):
+        return self._native_audio.pause(paused)
+
+    def audio_recording_status(self):
+        return self._native_audio.status()
+
+    def stop_audio_recording(self, discard=False):
+        path = self._native_audio.stop(discard)
+        if path is None:
+            return None
+        self._audio.set_audio(path)
+        return {"path": path, "url": self._audio.url}
 
     def get_settings(self):
         from version import __version__
@@ -465,6 +490,7 @@ def main():
         height=800,
         min_size=(700, 500),
     )
+    window.events.closed += api._native_audio.close
     api._set_window(window)
     if sys.platform == "linux":
         _grant_media_permissions_linux(window)

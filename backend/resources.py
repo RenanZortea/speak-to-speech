@@ -5,8 +5,12 @@ A background poller emits a stats dict on an interval; the UI draws bars.
 NVML is initialized once and cached; if there's no NVIDIA GPU it degrades to
 {"available": False} silently.
 """
+import ctypes
+import gc
 import os
+import sys
 import threading
+from dataclasses import dataclass
 
 import psutil
 
@@ -45,6 +49,46 @@ def _gpu_stats() -> dict:
 def available_ram() -> int:
     """Bytes of host RAM currently available (reclaimable), per psutil."""
     return int(psutil.virtual_memory().available)
+
+
+@dataclass(frozen=True)
+class ModelLoadMemoryBudget:
+    ram_available: int
+    swap_available: int
+
+    @property
+    def total_available(self) -> int:
+        return self.ram_available + self.swap_available
+
+
+def model_load_memory_budget() -> ModelLoadMemoryBudget:
+    """Memory the model loader can allocate without invoking the OOM killer.
+
+    Linux can satisfy anonymous allocations from RAM plus swap.  The old
+    preflight considered RAM only, so it rejected large models on machines with
+    ample swap (including zram) before CTranslate2 got a chance to load them.
+    Other platforms keep the conservative RAM-only behavior.
+    """
+    ram = available_ram()
+    swap = int(psutil.swap_memory().free) if sys.platform == "linux" else 0
+    return ModelLoadMemoryBudget(ram_available=ram, swap_available=swap)
+
+
+def reclaim_unused_process_memory() -> None:
+    """Release unreachable objects and, on glibc Linux, free allocator arenas.
+
+    Destroying a CTranslate2 model releases VRAM immediately but glibc can keep
+    gigabytes of freed host allocations in the process.  ``malloc_trim`` returns
+    those pages to the OS before the next model's memory preflight.
+    """
+    gc.collect()
+    if sys.platform != "linux":
+        return
+    try:
+        malloc_trim = ctypes.CDLL(None).malloc_trim
+        malloc_trim(0)
+    except (AttributeError, OSError):
+        pass
 
 
 def free_vram() -> int | None:

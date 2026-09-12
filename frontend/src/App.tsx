@@ -1,8 +1,10 @@
+import { useWorkspaceState } from "./useWorkspaceState";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   Cpu,
   Loader2,
+  RotateCcw,
   AlertCircle,
   Download,
   X,
@@ -30,6 +32,7 @@ import {
 } from "./aiCorrect";
 import { type Correction, correctedSentenceAt, newCorrectionId } from "./corrections";
 import { buildTranscriptDoc } from "./transcriptDoc";
+import { LyricsTranscript } from "./LyricsTranscript";
 import { AudioBar } from "./AudioBar";
 import { CodeTranscript, type CorrectionView } from "./CodeTranscript";
 import { CorrectionDialog, type DialogTarget } from "./CorrectionDialog";
@@ -39,8 +42,10 @@ import { ModelManager } from "./ModelManager";
 import { ResourceFooter } from "./ResourceFooter";
 import { SessionsRail } from "./SessionsRail";
 import { SettingsModal } from "./SettingsModal";
-import { Sidebar } from "./Sidebar";
+import { WorkspaceToolbar } from "./Sidebar";
 import { VowelStudio } from "./VowelStudio";
+import { Recorder, useRecorder } from "./Recorder";
+import { YouTubeWidget } from "./YouTubeWidget";
 import type { TrackedFormants } from "./formantTracker";
 
 type AppStatus =
@@ -55,14 +60,18 @@ type AppStatus =
   | { kind: "error"; message: string };
 
 export function App() {
-  const [mainView, setMainView] = useState<"transcript" | "vowels">("transcript");
+  const [mainView, setMainView] = useState<"transcript" | "vowels" | "youtube">("transcript");
+  const workspace = mainView === "youtube" ? "youtube" : "main";
+  const [transcriptionRequest, setTranscriptionRequest] = useWorkspaceState(workspace, 0);
+  const [transcriptDisplay, setTranscriptDisplay] = useWorkspaceState<"lyrics" | "edit">(workspace, "lyrics");
   const [status, setStatus] = useState<AppStatus>({ kind: "checking" });
   const [modelNoticeDismissed, setModelNoticeDismissed] = useState(false);
   const [gpu, setGpu] = useState<GpuInfo | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
-  const [audio, setAudio] = useState<{ path: string; url: string } | null>(null);
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [audio, setAudio] = useWorkspaceState<{ path: string; url: string; loadId: number } | null>(workspace, null);
+  const audioLoadIdRef = useRef(0);
+  const [segments, setSegments] = useWorkspaceState<Segment[]>(workspace, []);
+  const [currentTime, setCurrentTime] = useWorkspaceState(workspace, 0);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [playbackFormants, setPlaybackFormants] = useState<TrackedFormants | null>(null);
   const mainViewRef = useRef(mainView);
@@ -72,24 +81,28 @@ export function App() {
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>("ivrit-ai/whisper-large-v3-ct2");
   const [activeLanguage, setActiveLanguage] = useState<string>("he");
-  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const [detectedLanguage, setDetectedLanguage] = useWorkspaceState<string | null>(workspace, null);
   const [currentLoadedId, setCurrentLoadedId] = useState<string | null>(null);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
 
   // Sessions (persistence)
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useWorkspaceState<string | null>(workspace, null);
   const [railCollapsed, setRailCollapsed] = useState(true);
-  const [hasUnsaved, setHasUnsaved] = useState(false);
-  const [audioDuration, setAudioDuration] = useState(0);
+  const [hasUnsaved, setHasUnsaved] = useWorkspaceState(workspace, false);
+  const [audioDuration, setAudioDuration] = useWorkspaceState(workspace, 0);
+
+  const [autoSaveAudio, setAutoSaveAudio] = useState(() => localStorage.getItem("autoSaveAudio") === "true");
+  const [savingSession, setSavingSession] = useState(false);
+  const savingSessionRef = useRef(false);
 
   // Resources
   const [resourceStats, setResourceStats] = useState<ResourceStats | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Corrections (manual)
-  const [corrections, setCorrections] = useState<Correction[]>([]);
-  const [correctionView, setCorrectionView] = useState<CorrectionView>("corrected");
+  const [corrections, setCorrections] = useWorkspaceState<Correction[]>(workspace, []);
+  const [correctionView, setCorrectionView] = useWorkspaceState<CorrectionView>(workspace, "corrected");
   const [seekInCorrected, setSeekInCorrected] = useState<boolean>(
     () => localStorage.getItem("seekInCorrected") !== "false",
   );
@@ -98,10 +111,11 @@ export function App() {
   const [aiModalOpen, setAiModalOpen] = useState(false);
   // Ollama generation lives at app level so it keeps running (and still applies
   // its corrections) even if the user closes the "Correct with AI" window.
-  const [aiGen, setAiGen] = useState<AiGenState>({ status: "idle" });
+  const [aiGen, setAiGen] = useWorkspaceState<AiGenState>(workspace, { status: "idle" });
   // Current segments for the (mount-time) ollama_status handler closure.
-  const segmentsRef = useRef(segments);
-  segmentsRef.current = segments;
+  const transcriptionTarget = useRef({ setSegments, setDetectedLanguage, setAudioDuration, setHasUnsaved });
+  const aiTarget = useRef({ segments, setAiGen, setCorrections, setHasUnsaved });
+  const [jobWorkspace, setJobWorkspace] = useState<"main" | "youtube" | null>(null);
 
   // Updates
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -159,7 +173,7 @@ export function App() {
       void refreshModels();
     });
     const offSeg = on("segment", (s: Segment) => {
-      setSegments((prev) => [...prev, s]);
+      transcriptionTarget.current.setSegments((prev) => [...prev, s]);
     });
     const offTr = on("transcribe_status", (p: TranscribeStatusEvent) => {
       if (p.status === "loading_model") {
@@ -167,12 +181,12 @@ export function App() {
         if (p.model_id) setCurrentLoadedId(p.model_id);
       } else if (p.status === "transcribing") setStatus({ kind: "transcribing" });
       else if (p.status === "low_memory_retry") setStatus({ kind: "low_memory_retry" });
-      else if (p.status === "language_detected") setDetectedLanguage(p.language);
+      else if (p.status === "language_detected") transcriptionTarget.current.setDetectedLanguage(p.language);
       else if (p.status === "done") {
         setStatus({ kind: "done", duration: p.duration });
-        setAudioDuration(p.duration);
-        setHasUnsaved(true);
-        if (p.language) setDetectedLanguage(p.language);
+        transcriptionTarget.current.setAudioDuration(p.duration);
+        transcriptionTarget.current.setHasUnsaved(true);
+        if (p.language) transcriptionTarget.current.setDetectedLanguage(p.language);
         if (p.model_id) setCurrentLoadedId(p.model_id);
       }
       else if (p.status === "error") setStatus({ kind: "error", message: p.error });
@@ -183,25 +197,25 @@ export function App() {
     });
     const offAi = on("ollama_status", (e: OllamaStatusEvent) => {
       if (e.status === "generating") {
-        setAiGen({ status: "generating", model: e.model });
+        aiTarget.current.setAiGen({ status: "generating", model: e.model });
       } else if (e.status === "done") {
         try {
           const json = parseAiJson(e.text);
-          const { corrections, unplaced } = mapAiCorrections(json, segmentsRef.current);
+          const { corrections, unplaced } = mapAiCorrections(json, aiTarget.current.segments);
           if (corrections.length > 0) {
-            setCorrections((cs) => [...cs, ...corrections]);
-            setHasUnsaved(true);
+            aiTarget.current.setCorrections((cs) => [...cs, ...corrections]);
+            aiTarget.current.setHasUnsaved(true);
           }
-          setAiGen({
+          aiTarget.current.setAiGen({
             status: "done",
             output: e.text,
             result: { added: corrections.length, unplaced },
           });
         } catch (err) {
-          setAiGen({ status: "error", error: (err as Error).message });
+          aiTarget.current.setAiGen({ status: "error", error: (err as Error).message });
         }
       } else if (e.status === "error") {
-        setAiGen({ status: "error", error: e.error });
+        aiTarget.current.setAiGen({ status: "error", error: e.error });
       }
     });
     const offUpd = on("update_download", (p: any) => {
@@ -222,8 +236,11 @@ export function App() {
     };
   }, [refreshModels, refreshSessions]);
 
-  const startTranscribe = (path: string, url: string) => {
-    setAudio({ path, url });
+  const prepareAudio = (path: string, url: string) => {
+    setTranscriptionRequest(0);
+    setTranscriptDisplay("lyrics");
+    setCorrectionView("corrected");
+    setAudio({ path, url, loadId: ++audioLoadIdRef.current });
     setAudioPlaying(false);
     setPlaybackFormants(null);
     setSegments([]);
@@ -234,20 +251,16 @@ export function App() {
     setAiGen({ status: "idle" });
     setActiveSessionId(null);
     setHasUnsaved(true);
-    setStatus({ kind: "transcribing" });
-    void api.transcribe(path, {
-      temperature,
-      model_id: activeModelId,
-      language: activeLanguage,
-    });
+    setAudioDuration(0);
+    setStatus({ kind: "ready" });
   };
 
   // ---- Sessions ----
 
-  const canSaveSession = !!audio && segments.length > 0;
+  const canSaveSession = !!audio && !savingSession;
 
   const handleSaveSession = async () => {
-    if (!audio || segments.length === 0) return;
+    if (!audio) return;
     const data = {
       title: deriveTitle(segments),
       audio_path: audio.path,
@@ -258,13 +271,25 @@ export function App() {
       corrections,
     };
     if (activeSessionId) {
-      await api.updateSession(activeSessionId, data);
+      const updated = await api.updateSession(activeSessionId, data);
+      if (!updated) throw new Error("The saved session no longer exists.");
     } else {
       const summary = await api.saveSession(data);
       setActiveSessionId(summary.id);
     }
     setHasUnsaved(false);
     void refreshSessions();
+  };
+
+  const autoSaveBeforeLeaving = async (): Promise<boolean> => {
+    if (workspace !== "main" || !autoSaveAudio || !audio || (!hasUnsaved && activeSessionId)) return true;
+    try {
+      await handleSaveSession();
+      return true;
+    } catch (error) {
+      setStatus({ kind: "error", message: `Could not auto-save recording: ${(error as Error).message}` });
+      return false;
+    }
   };
 
   const handleLoadSession = async (id: string) => {
@@ -277,8 +302,13 @@ export function App() {
     setAudioPlaying(false);
     setPlaybackFormants(null);
     if (sess.audio_url) {
-      setAudio({ path: sess.audio_stored_path ?? "", url: sess.audio_url });
+      setAudio({
+        path: sess.audio_stored_path ?? "",
+        url: sess.audio_url,
+        loadId: ++audioLoadIdRef.current,
+      });
     }
+    if (!sess.audio_url) setAudio(null);
     setCorrections(sess.corrections ?? []);
     if (sess.language) setActiveLanguage(sess.language);
     if (sess.model_id) setActiveModelId(sess.model_id);
@@ -300,23 +330,30 @@ export function App() {
   const handlePick = async () => {
     const file = await api.pickAudio();
     if (!file) return;
-    startTranscribe(file.path, file.url);
+    prepareAudio(file.path, file.url);
   };
 
   const handleRecordingReady = (path: string, url: string) => {
-    startTranscribe(path, url);
+    prepareAudio(path, url);
   };
 
   const handleRetranscribe = () => {
-    if (!audio) return;
+    if (!audio || busy || anyRecordingBusy) return;
+    transcriptionTarget.current = { setSegments, setDetectedLanguage, setAudioDuration, setHasUnsaved };
+    setJobWorkspace(workspace);
+    if (workspace === "main") setMainView("transcript");
+    setTranscriptionRequest((request) => request + 1);
     setSegments([]);
+    setCorrections([]);
+    setAiGen({ status: "idle" });
+    setHasUnsaved(true);
     setDetectedLanguage(null);
     setStatus({ kind: "transcribing" });
     void api.transcribe(audio.path, {
       temperature,
       model_id: activeModelId,
       language: activeLanguage,
-    });
+    }).catch((error: Error) => setStatus({ kind: "error", message: error.message }));
   };
 
   const handleModelChange = async (modelId: string) => {
@@ -377,14 +414,82 @@ export function App() {
     languages.find((l) => l.code === activeLanguage)?.name ?? activeLanguage;
 
   const startOllamaCorrect = (model: string) => {
+    aiTarget.current = { segments, setAiGen, setCorrections, setHasUnsaved };
     setAiGen({ status: "generating", model });
     void api.ollamaCorrect(buildCorrectionPrompt(segments, activeLanguageName), model);
   };
 
   const busy =
-    status.kind === "transcribing" ||
+    savingSession || status.kind === "transcribing" ||
     status.kind === "loading_model" ||
-    status.kind === "downloading";
+    status.kind === "downloading" || status.kind === "low_memory_retry";
+
+  const mainRecording = useRecorder({ serverUrl, disabled: busy || workspace !== "main", onRecordingReady: handleRecordingReady });
+  const youtubeRecording = useRecorder({ serverUrl, disabled: busy || workspace !== "youtube", onRecordingReady: handleRecordingReady });
+  const mainRecordingBusy = ["requesting", "recording", "paused", "uploading"].includes(mainRecording.state.kind);
+  const youtubeRecordingBusy = ["requesting", "recording", "paused", "uploading"].includes(youtubeRecording.state.kind);
+  const mainRecorder = {
+    ...mainRecording,
+    canStart: mainRecording.canStart && !youtubeRecordingBusy,
+    start: async () => {
+      if (youtubeRecordingBusy || savingSessionRef.current || !mainRecording.canStart || aiGen.status === "generating") return false;
+      savingSessionRef.current = true;
+      setSavingSession(true);
+      try {
+        if (!await autoSaveBeforeLeaving()) return false;
+        return await mainRecording.start();
+      } finally {
+        savingSessionRef.current = false;
+        setSavingSession(false);
+      }
+    },
+  };
+  const youtubeRecorder = {
+    ...youtubeRecording,
+    canStart: youtubeRecording.canStart && !mainRecordingBusy,
+    start: () => mainRecordingBusy ? Promise.resolve(false) : youtubeRecording.start(),
+  };
+  const anyRecordingBusy = mainRecordingBusy || youtubeRecordingBusy;
+  const recorder = workspace === "youtube" ? youtubeRecorder : mainRecorder;
+  const transcribingHere = busy && jobWorkspace === workspace;
+  const clearRecording = async () => {
+    if (busy || savingSessionRef.current || aiGen.status === "generating") return;
+    savingSessionRef.current = true;
+    setSavingSession(true);
+    let saved: boolean;
+    try {
+      saved = await autoSaveBeforeLeaving();
+    } finally {
+      savingSessionRef.current = false;
+      setSavingSession(false);
+    }
+    if (!saved) return;
+    setAudio(null);
+    setSegments([]);
+    setCorrections([]);
+    setCurrentTime(0);
+    setAudioDuration(0);
+    setDetectedLanguage(null);
+    setActiveSessionId(null);
+    setHasUnsaved(false);
+    setAiGen({ status: "idle" });
+    setTranscriptionRequest(0);
+    setTranscriptDisplay("lyrics");
+    setCorrectionView("corrected");
+    setAudioPlaying(false);
+    setPlaybackFormants(null);
+    setCtxMenu(null);
+    setCorrDialog(null);
+    setStatus({ kind: "ready" });
+    recorder.dismissError();
+  };
+  useEffect(() => {
+    setCtxMenu(null);
+    setCorrDialog(null);
+    setAiModalOpen(false);
+  }, [workspace]);
+
+  const recordingBusy = ["requesting", "recording", "paused", "uploading"].includes(recorder.state.kind);
 
   const showModelNotice =
     (status.kind === "model_missing" || status.kind === "downloading") && !modelNoticeDismissed;
@@ -482,32 +587,12 @@ export function App() {
           hasUnsaved={hasUnsaved}
           canSave={canSaveSession}
           onSave={handleSaveSession}
-          onLoad={handleLoadSession}
+          onLoad={(id) => { if (!busy && !anyRecordingBusy) void handleLoadSession(id); }}
           onDelete={handleDeleteSession}
           onRename={handleRenameSession}
         />
 
-        <Sidebar
-          audioPath={audio?.path ?? null}
-          serverUrl={serverUrl}
-          busy={busy}
-          temperature={temperature}
-          segments={segments}
-          corrections={corrections}
-          models={models}
-          languages={languages}
-          activeModelId={activeModelId}
-          activeLanguage={activeLanguage}
-          detectedLanguage={detectedLanguage}
-          onTemperatureChange={setTemperature}
-          onPick={handlePick}
-          onRecordingReady={handleRecordingReady}
-          onRetranscribe={handleRetranscribe}
-          onLanguageChange={handleLanguageChange}
-          onModelChange={handleModelChange}
-          onOpenModelManager={() => setModelManagerOpen(true)}
-          onOpenAiCorrect={() => setAiModalOpen(true)}
-        />
+
 
         {modelManagerOpen && (
           <ModelManager
@@ -524,12 +609,55 @@ export function App() {
         )}
 
         <main className="main">
-          <nav className="tab-bar" aria-label="Main views">
-            <button className={`tab ${mainView === "transcript" ? "active" : ""}`} onClick={() => setMainView("transcript")}>Transcript</button>
-            <button className={`tab ${mainView === "vowels" ? "active" : ""}`} onClick={() => setMainView("vowels")}>Vowels</button>
+          <nav className="tab-bar" role="tablist" aria-label="Workspace mode" onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const views = ["transcript", "vowels", "youtube"] as const;
+            const next = event.key === "Home" ? views[0] : event.key === "End" ? views[views.length - 1]
+              : views[(views.indexOf(mainView) + (event.key === "ArrowRight" ? 1 : views.length - 1)) % views.length];
+            setMainView(next);
+            document.getElementById(`tab-${next}`)?.focus();
+          }}>
+            <button className={`tab ${mainView === "transcript" ? "active" : ""}`} role="tab" id="tab-transcript" aria-controls="panel-transcript" aria-selected={mainView === "transcript"} tabIndex={mainView === "transcript" ? 0 : -1} onClick={() => setMainView("transcript")}>Transcribe</button>
+            <button className={`tab ${mainView === "vowels" ? "active" : ""}`} role="tab" id="tab-vowels" aria-controls="panel-vowels" aria-selected={mainView === "vowels"} tabIndex={mainView === "vowels" ? 0 : -1} onClick={() => setMainView("vowels")}>Vowel practice</button>
+            <button className={`tab ${mainView === "youtube" ? "active" : ""}`} role="tab" id="tab-youtube" aria-controls="panel-youtube" aria-selected={mainView === "youtube"} tabIndex={mainView === "youtube" ? 0 : -1} onClick={() => setMainView("youtube")}>YouTube</button>
           </nav>
-          <AudioBar
+          <div role="tabpanel" id="panel-transcript" className={!audio || recordingBusy ? "record-panel" : ""} aria-labelledby="tab-transcript" hidden={mainView !== "transcript"}>
+          {(!audio || recordingBusy) && <section className={`record-stage ${audio && !recordingBusy ? "has-audio" : ""}`} aria-label="Record audio">
+            <div className="record-intro">
+              <span className="record-eyebrow">YOUR VOICE, YOUR WORKSPACE</span>
+              <h1>{recorder.state.kind === "recording" ? "Listening." : audio ? "Make it yours." : "Start with your voice."}</h1>
+              <p>{recorder.state.kind === "recording" ? "Take your time. Stop when you’re ready." : audio ? "Listen back, then turn your audio into words." : "Record a thought, a conversation, or a little practice."}</p>
+            </div>
+            <Recorder controller={recorder} prominent />
+            {!recordingBusy && !busy && <button className="import-audio" onClick={handlePick}>
+              {audio ? "or choose another audio file" : "or upload an audio file"}
+            </button>}
+            {busy && <p className="stage-progress" role="status"><Loader2 size={16} className="spin" /> {status.kind === "transcribing" ? "Turning your audio into words…" : "Preparing transcription…"}</p>}
+          </section>}
+          </div>
+          <div className={mainView === "youtube" ? "youtube-practice-layout" : "shared-player-layout"}>
+          <div role="tabpanel" id="panel-youtube" aria-labelledby="tab-youtube" hidden={mainView !== "youtube"}>
+            <YouTubeWidget recorder={youtubeRecorder} active={mainView === "youtube"} />
+          </div>
+          {audio && !recordingBusy && <AudioBar
+            key={workspace}
+            onClear={clearRecording}
+            clearDisabled={busy || aiGen.status === "generating"}
+            compactStage={mainView === "youtube"}
+            transcriptionRequest={transcriptionRequest}
+            showStage={segments.length > 0 || transcribingHere}
+            stage={segments.length > 0 ? <div className="transcript-stage">
+              <div className="transcript-display-switch">
+                <button aria-pressed={transcriptDisplay === "lyrics"} onClick={() => setTranscriptDisplay("lyrics")}>Lyrics</button>
+                <button aria-pressed={transcriptDisplay === "edit"} onClick={() => setTranscriptDisplay("edit")}>Edit transcript</button>
+              </div>
+              {transcriptDisplay === "lyrics" ? <LyricsTranscript segments={segments} corrections={corrections} view={correctionView} currentTime={currentTime} onSeek={handleSeek} onRequestContextMenu={handleRequestContextMenu} /> :
+                <CodeTranscript segments={segments} corrections={corrections} view={correctionView} seekInCorrected={seekInCorrected} currentTime={currentTime} onSeek={handleSeek} onRequestContextMenu={handleRequestContextMenu} />}
+            </div> : transcribingHere ? <div className="transcription-loading" role="status"><Loader2 size={24} className="spin" /><span>Turning your audio into words…</span></div> : null}
+            compact={mainView === "vowels"}
             url={audio?.url ?? null}
+            sourceKey={audio?.loadId ?? 0}
             segments={segments}
             currentTime={currentTime}
             onTimeChange={setCurrentTime}
@@ -540,18 +668,36 @@ export function App() {
             onPlayingChange={setAudioPlaying}
             onPlaybackFormants={handlePlaybackFormants}
             analyzePlayback={mainView === "vowels"}
-          />
-          {mainView === "transcript" ? <>
-            <CodeTranscript
-              segments={segments}
-              corrections={corrections}
-              view={correctionView}
-              seekInCorrected={seekInCorrected}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              onRequestContextMenu={handleRequestContextMenu}
-            />
-          </> : <VowelStudio playbackFormants={playbackFormants} playbackActive={audioPlaying} hasRecording={!!audio} languageHint={detectedLanguage ?? activeLanguage} />}
+            actions={<>
+              <button className="btn ghost" onClick={() => void recorder.start()} disabled={!recorder.canStart}>Record again</button>
+              <button className={`btn primary transcribe-action ${transcribingHere || segments.length || transcriptionRequest > 0 ? "is-contracted" : ""}`} aria-label={transcribingHere ? "Transcribing" : segments.length || transcriptionRequest > 0 ? "Transcribe again" : "Transcribe"} title={transcribingHere ? "Transcribing…" : segments.length || transcriptionRequest > 0 ? "Transcribe again" : "Transcribe"} aria-busy={transcribingHere} onClick={handleRetranscribe} disabled={busy || anyRecordingBusy || !models.some((m) => m.id === activeModelId && m.usable)}>
+                <span className="transcribe-label" aria-hidden>Transcribe</span>
+                <span className="transcribe-icon" aria-hidden>{transcribingHere ? <Loader2 size={18} className="spin" /> : <RotateCcw size={18} />}</span>
+              </button>
+<WorkspaceToolbar
+          audioPath={audio?.path ?? null}
+          busy={busy}
+          temperature={temperature}
+          segments={segments}
+          corrections={corrections}
+          models={models}
+          languages={languages}
+          activeModelId={activeModelId}
+          activeLanguage={activeLanguage}
+          detectedLanguage={detectedLanguage}
+          onTemperatureChange={setTemperature}
+          onLanguageChange={handleLanguageChange}
+          onModelChange={handleModelChange}
+          onOpenModelManager={() => setModelManagerOpen(true)}
+          onOpenAiCorrect={() => setAiModalOpen(true)}
+        />
+
+            </>}
+          />}
+          </div>
+          <div role="tabpanel" id="panel-vowels" aria-labelledby="tab-vowels" hidden={mainView !== "vowels"}>
+            {mainView === "vowels" && <VowelStudio playbackFormants={playbackFormants} playbackActive={audioPlaying} hasRecording={!!audio} languageHint={detectedLanguage ?? activeLanguage} />}
+          </div>
         </main>
       </div>
 
@@ -627,6 +773,11 @@ export function App() {
       {settingsOpen && (
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
+          autoSaveAudio={autoSaveAudio}
+          onAutoSaveAudioChange={(v) => {
+            localStorage.setItem("autoSaveAudio", String(v));
+            setAutoSaveAudio(v);
+          }}
           seekInCorrected={seekInCorrected}
           onSeekInCorrectedChange={(v) => {
             setSeekInCorrected(v);

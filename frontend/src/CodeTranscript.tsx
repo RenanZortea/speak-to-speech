@@ -19,7 +19,7 @@ import {
   correctedSentenceAt,
   type Correction,
 } from "./corrections";
-import { buildTranscriptDoc, type DocWord } from "./transcriptDoc";
+import { buildTranscriptDoc, transcriptWordAt, type DocWord } from "./transcriptDoc";
 import type { MenuTarget } from "./CorrectionMenu";
 
 export type CorrectionView = "corrected" | "original";
@@ -36,6 +36,7 @@ interface Props {
 
 const setActive = StateEffect.define<DecorationSet>();
 const setCorr = StateEffect.define<DecorationSet>();
+const setTimedWords = StateEffect.define<DecorationSet>();
 
 function makeField(effectType: StateEffectType<DecorationSet>) {
   return StateField.define<DecorationSet>({
@@ -51,6 +52,7 @@ function makeField(effectType: StateEffectType<DecorationSet>) {
 
 const activeField = makeField(setActive);
 const corrField = makeField(setCorr);
+const timedWordsField = makeField(setTimedWords);
 
 const editorTheme = EditorView.theme(
   {
@@ -84,6 +86,7 @@ class SuggestionWidget extends WidgetType {
   toDOM() {
     const span = document.createElement("span");
     span.className = "cm-sug";
+    span.dataset.correctionFrom = String(this.corr.from);
     span.style.borderBottomColor = CATEGORY_COLOR[this.corr.category];
     span.dir = "auto";
     span.textContent = this.corr.suggestion;
@@ -262,6 +265,7 @@ export function CodeTranscript({
         doc: "",
         extensions: [
           corrField,
+          timedWordsField,
           activeField,
           tip,
           editorTheme,
@@ -277,9 +281,16 @@ export function CodeTranscript({
                 !seekInCorrectedRef.current
               )
                 return false;
-              const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+              const timedWord = (e.target as HTMLElement).closest<HTMLElement>("[data-word-start]");
+              if (timedWord) {
+                onSeekRef.current(Number(timedWord.dataset.wordStart));
+                return false;
+              }
+              const suggestion = (e.target as HTMLElement).closest<HTMLElement>("[data-correction-from]");
+              const pos = suggestion ? Number(suggestion.dataset.correctionFrom)
+                : v.posAtCoords({ x: e.clientX, y: e.clientY });
               if (pos == null) return false;
-              const w = wordsRef.current.find((w) => pos >= w.from && pos <= w.to);
+              const w = transcriptWordAt(wordsRef.current, pos);
               if (w) onSeekRef.current(w.start);
               return false;
             },
@@ -341,7 +352,12 @@ export function CodeTranscript({
     wordsRef.current = words;
     activeIdxRef.current = -1;
     v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
-    v.dispatch({ effects: setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)) });
+    v.dispatch({ effects: [
+      setTimedWords.of(Decoration.set(words.filter((word) => word.to > word.markFrom).map((word) =>
+        Decoration.mark({ attributes: { "data-word-start": String(word.start) } }).range(word.markFrom, word.to)
+      ), true)),
+      setCorr.of(correctionDecorations(corrections, view, v.state.doc.length)),
+    ] });
   }, [segments]);
 
   // Rebuild the correction layer when corrections or the view toggle change.
