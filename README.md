@@ -1,52 +1,80 @@
 # SpeakToSpeech
 
-> Local speech-to-text for language learning.
+> A desktop accent practice tool: listen, imitate, record, and refine your pronunciation.
 
-A desktop tool that transcribes audio recordings on your own GPU using
-[faster-whisper](https://github.com/SYSTRAN/faster-whisper), then helps you
-review the transcript against the original audio — built around the workflow
-of finding "gap moments" (silences, code-switches to L1, errors) in your own
-target-language speech and turning them into study material.
+SpeakToSpeech brings reference audio, recording, and vowel practice into one
+workspace. Slow down a phrase, repeat it in your own voice, and listen back.
+Use the vowel chart to explore how sounds change and see where your spoken
+vowels sit relative to a target.
 
-Default-tuned for Hebrew via [`ivrit-ai/whisper-large-v3-ct2`](https://huggingface.co/ivrit-ai/whisper-large-v3-ct2),
-but you can swap to any official Whisper model or community fine-tune from the
-built-in model manager (English, Spanish, Portuguese, French, German, Arabic,
-Russian, ~99 languages via the multilingual models).
+Local Whisper transcription helps you navigate and review your recordings.
+The default model is tuned for Hebrew, with other languages available through
+the model manager. Vowel practice includes General American English, Modern
+Israeli Hebrew, Palestinian Arabic (Jerusalem approximation), and Brazilian
+Portuguese.
 
-Built on **Python + faster-whisper + pywebview + React + wavesurfer.js**.
-Single-user, fully local, no cloud.
+## A practice session
 
----
-
-## Why this exists
-
-Transcription tools are a dime a dozen. This one is shaped for the
-specific workflow of *re-listening to your own L2 speech to find what you
-couldn't say*. Concretely that means:
-
-- **Verbatim, not cleaned-up.** `temperature=0`, no VAD filter. Pauses and false
-  starts are signal, not noise — they show you where you hesitated.
-- **Confidence is surfaced, not hidden.** Each segment's `avg_logprob` becomes a
-  colored left border (green → yellow → red). Red segments are the moments the
-  model wasn't sure — usually exactly the moments *you* weren't sure.
-- **Audio-to-transcript sync is the killer feature.** Click any segment to jump
-  the player there. Loop the current segment. Slow playback to 0.5×. The
-  waveform shows pauses as flat regions before you even hit play.
+1. **Listen.** Load a YouTube video in **Media**, or import an audio file.
+   Slow down a phrase and use checkpoints or transcript segment loops to repeat it.
+2. **Imitate and record.** Record your microphone, desktop audio, or both.
+   Media's play-and-record control lets you practice alongside a video.
+3. **Listen back.** Use the waveform and synchronized transcript to return to
+   the phrase you want to work on. Compare what you hear with your reference.
+4. **Focus on a vowel.** Open **Vowels**, choose a language and target, then
+   use **Practice** to see your microphone's vowel position. Hold Space to hear
+   the target and release it to speak. Play a recording to follow its vowels
+   on the same chart.
+5. **Keep practicing.** Save sessions to revisit recordings and transcripts,
+   or export the transcript for further study.
 
 ## Features
 
-- **Transcribe**: pick an audio file, or record from your mic (auto-saves under `~/SpeakToSpeech/recordings/`)
-- **YouTube shadowing**: open YouTube mode, paste a video URL, and load/play it. Press Record in the Source panel to shadow with your microphone; Stop saves and transcribes your take. Headphones help prevent video audio bleeding into the recording. Supports watch, share, Shorts, live, and timestamped links. Requires internet and a video that allows embedding. Closing YouTube mode stops video playback; the microphone controls remain independent.
-- **Waveform** with click-to-seek, segment ticks overlaid as you transcribe
-- **Playback controls**: play/pause, 0.5× – 1.5× speed, volume + mute, loop current segment
-- **Hebrew typography** (Heebo) with RTL transcript rendering
-- **Confidence coloring** per segment (avg_logprob → green/yellow/red border)
-- **Live model swap** between any downloaded Whisper variant
-- **Language picker** (Hebrew, English, 25+ others, or auto-detect)
-- **Model manager**: download/delete/cancel, custom HF repo IDs, disk usage
-- **Re-transcribe** the loaded audio with different temperature/model/language
-- **Export** as timestamped `.txt`, plain `.txt`, `.srt`, or full `.json`; **Copy transcription** to clipboard
-- **Free clipboard copy** of plain transcription
+### Vowel exploration and practice
+
+- **Interactive vowel chart:** drag across the chart to hear synthesized vowels.
+- **Live visual feedback:** track F1/F2 (the resonances used to place vowels on
+  the chart), compare them with a selected target, and see adjustment hints.
+- **Recording analysis:** follow vowel positions while recorded audio plays.
+- **Sound controls:** adjust pitch, volume, and F1/F2/F3; choose male or female
+  reference values for each supported language.
+
+Reference points are guides for practice, not a score for your accent. Voices,
+dialects, and connected speech vary. The Jerusalem Arabic targets approximate
+central/northern Palestinian Arabic data; the app explains these reference
+limitations in the vowel view.
+
+### Listening, shadowing, and recording
+
+- **YouTube practice:** focused playback with speed controls, checkpoints,
+  short seeks, and play-and-record.
+- **Flexible recording:** microphone, desktop audio, or both, with source
+  selection and playback routing on Linux.
+- **Audio review:** waveform seeking, transcript segment loops, playback at
+  0.5×, 0.75×, or 1×, and volume controls.
+- **Saved sessions:** return to earlier recordings and transcripts.
+
+### Transcription for review
+
+- **Local speech recognition** using [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
+- **Model and language selection:** download, switch, or remove Whisper models,
+  add a Hugging Face model ID, and select a language or auto-detect it.
+- **Synchronized transcripts:** click a segment to seek; Hebrew text supports RTL.
+- **Transcript corrections:** edit manually or use optional Ollama assistance.
+- **Export:** timestamped or plain `.txt`, `.srt`, and `.json`, plus clipboard copy.
+
+Transcription defaults to [`ivrit-ai/whisper-large-v3-ct2`](https://huggingface.co/ivrit-ai/whisper-large-v3-ct2).
+Segment confidence reflects the speech recognition model's certainty; it is
+not a pronunciation assessment.
+
+Recordings and transcription are processed locally. Model downloads and YouTube
+playback require internet access; YouTube sign-in uses its own account pages.
+
+### Media controls and shortcuts
+
+Paste a video, Shorts, live, or share link in Media and choose **Load video**. The actual YouTube website runs underneath a focused video surface. Its native timeline supports jumping through the video, with captions and settings available in the bottom control bar. The native **Skip ad** button appears when YouTube offers a skippable ad. Compact app controls provide play/pause, 1s/5s seeking, speed, checkpoints, and play-and-record. **Sign in** opens YouTube/Google's account flow using the same persistent profile; close it to return to practice. Browser toolbars, website links, recommendations, and popups are unavailable during practice, and navigation is restricted to the selected video. Switching tabs hides and pauses playback. Recording also remains available through the Source panel.
+
+Media shortcuts use physical keys, matching Global Speed on Dvorak. **Shift + .** (physical Shift+W) sets/replaces the checkpoint; **.** (W) jumps to it; **o** (S) toggles 1× and the previous speed; **a / e** (A/D) decrease/increase speed by 0.1× within 0.25–2×. They work with focus on the app or video, share state with the buttons, and ignore text entry, dialogs, sign-in, and inactive Media tabs. The speed readout shows the actual rate. Shift-click the checkpoint button to replace its position.
 
 ## Requirements
 
@@ -56,19 +84,17 @@ couldn't say*. Concretely that means:
 - **Node.js 18+** and **npm**.
 - **ffmpeg** on PATH (any recent version).
 
-macOS *will* work in principle. CPU-only inference also works
-(swap `device="cuda"` → `device="cpu"` in `worker.py`), but it's painfully slow on
-large models.
+The setup below targets Windows and Linux with NVIDIA CUDA for transcription.
 
-Windows gets the prebuilt installer from [Releases](../../releases); on Linux you
-run from source (see [Linux setup](#linux-setup-arch-tested) below).
+Windows installers are available from [Releases](../../releases). On Arch Linux,
+install the current checkout or run from source (see [Linux setup](#linux-setup-arch-tested)).
 
 ## Setup
 
 ### 1. Clone and create a venv
 
 ```powershell
-git clone https://github.com/<your-username>/speak-to-speech.git
+git clone https://github.com/RenanZortea/speak-to-speech.git
 cd speak-to-speech
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -108,7 +134,8 @@ needed for recording and transcription. It reuses an existing SpeakToSpeech Vite
 server. Closing the window stops any server started by the launcher; an existing
 server is left running. Set `SPEAKTOSPEECH_PYTHON` to override the Python path.
 
-Two terminals. Vite serves the frontend with hot reload; pywebview points at it.
+Alternatively, use two terminals. Vite serves the frontend with hot reload;
+the Qt desktop shell loads it.
 
 **Terminal 1 — frontend:**
 ```powershell
@@ -121,8 +148,7 @@ npm run dev
 .\.venv\Scripts\python.exe backend\main.py --dev
 ```
 
-The window opens at `http://localhost:5173`. DevTools are enabled in dev mode
-(right-click → Inspect).
+The desktop shell loads the frontend from `http://localhost:5173`.
 
 ## Run (built / "prod")
 
@@ -155,19 +181,18 @@ For a development environment instead, follow the manual steps below.
 Same app, run from source. On Arch:
 
 ```bash
-# System deps: WebKitGTK for the pywebview window, Python 3.11 from the AUR
-sudo pacman -S webkit2gtk-4.1 ffmpeg libpulse
+# System deps: Qt desktop/media runtime, audio tools, Python 3.11 from the AUR
+sudo pacman -S pyside6 qt6-webengine python-psutil ffmpeg libpulse
 paru -S python311   # or any AUR helper
 
 git clone https://github.com/RenanZortea/speak-to-speech.git
 cd speak-to-speech
 python3.11 -m venv .venv
 
-# Python deps — same pins as Windows, plus GTK bindings for pywebview
+# Python deps — same pins as Windows
 .venv/bin/pip install -r backend/requirements.txt
 .venv/bin/pip install faster-whisper==1.2.1 ctranslate2==4.7.2
 .venv/bin/pip install "nvidia-cublas-cu12==12.9.*" "nvidia-cudnn-cu12==9.*"
-.venv/bin/pip install pycairo PyGObject
 
 cd frontend && npm install && cd ..
 ```
@@ -180,10 +205,6 @@ Linux notes:
 
 - **No CUDA preload dance.** The nvidia-cu12 wheels are found by the regular
   dynamic linker; `worker.py`'s Windows DLL preload is skipped on Linux.
-- **NVIDIA + Wayland**: WebKitGTK's DMA-BUF renderer crashes on the proprietary
-  driver ("Error 71 dispatching to Wayland display"). The app detects NVIDIA and
-  sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` automatically; export it yourself to
-  override.
 - **In-app updater is Windows-only** (it downloads the Setup.exe). On Linux,
   update with `git pull` + `npm run build`.
 
@@ -196,7 +217,7 @@ Linux notes:
 
 **Slow downloads?** HuggingFace rate-limits anonymous requests. A free `HF_TOKEN`
 from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-gives 5–10× the throughput. Set the env var before launching:
+can be supplied through the environment before launching:
 
 ```powershell
 $env:HF_TOKEN = "hf_yourtokenhere"
@@ -205,16 +226,16 @@ $env:HF_TOKEN = "hf_yourtokenhere"
 ## Building a portable bundle (for distribution)
 
 Produces a self-contained `dist/SpeakToSpeech/` folder + a portable ZIP. The
-bundle includes Python, faster-whisper, the CUDA runtime DLLs, pywebview, the
-built React frontend, and everything else needed to run — except the Whisper
-model, which is downloaded on first launch (so the installer stays ~600 MB
-instead of multiple GB).
+bundle includes Python, faster-whisper, the CUDA runtime DLLs, the
+built React frontend, and Qt WebEngine. The Whisper model is downloaded
+separately on first launch.
 
 ```powershell
 .\build.ps1
 ```
 
 Options:
+
 - `-VenvPython "C:\path\to\python.exe"` — use a non-default venv
 - `-SkipFrontend` — reuse an existing `frontend/dist/`
 - `-SkipZip` — produce the folder bundle only, skip ZIP packaging
@@ -225,61 +246,35 @@ The end-to-end build runs the React production build, invokes PyInstaller via
 takes 3–6 minutes; subsequent ones are faster (incremental analysis cache).
 
 To distribute, send users the resulting `dist/SpeakToSpeech-portable-<date>.zip`.
-They extract anywhere and double-click `SpeakToSpeech.exe`. WebView2 runtime is
-required (default on Windows 10/11 since 2021).
+They extract anywhere and double-click `SpeakToSpeech.exe`.
 
-## Architecture (10-second tour)
+## Architecture
 
+The app uses **Python + faster-whisper + PySide6/Qt WebEngine + React +
+wavesurfer.js**. The Qt desktop shell runs separately from the transcription
+backend, communicating through a local server and a Qt WebChannel bridge.
+The embedded YouTube view has a separate browser profile.
+
+```text
+backend/
+├── main.py            App API and backend lifecycle
+├── desktop_shell.py   Qt window, frontend bridge, embedded media view
+├── desktop_server.py  Local frontend, RPC, and event server
+├── media_browser.py   YouTube playback and sign-in
+├── native_audio.py    Native recording and audio routing
+├── worker.py          Whisper transcription and model switching
+├── model_manager.py   Model catalog and downloads
+└── audio_server.py    Seekable audio streaming
+
+frontend/src/
+├── App.tsx            Workspaces, sessions, and event wiring
+├── MediaWidget.tsx    Media source and player
+├── VowelStudio.tsx    Vowel exploration and practice
+├── formantTracker.ts  Microphone and playback vowel analysis
+├── AudioBar.tsx       Waveform and playback controls
+├── Recorder.tsx       Recording controls
+└── api.ts             Typed backend bridge
 ```
-backend/                Python — single long-lived process
-├── main.py            pywebview window + Api exposed to JS
-├── worker.py          WhisperWorker (model swap with unload-before-load)
-├── model_manager.py   Catalog, HF cache mgmt, cancellable downloads
-└── audio_server.py    Localhost HTTP server with Range support for <audio>
-
-frontend/src/          Vite + React + TypeScript
-├── App.tsx            State machine, event wiring
-├── Sidebar.tsx        Source + model + language + options + export
-├── AudioBar.tsx       Sticky waveform + transport + speed + volume + loop
-├── Waveform.tsx       wavesurfer.js wrapper with segment ticks
-├── Transcript.tsx     Segment list with confidence colors, click-to-seek
-├── ModelManager.tsx   Modal: catalog + download/cancel/delete + custom HF id
-├── Recorder.tsx       MediaRecorder → POST /upload → transcribe
-├── api.ts             Typed wrapper over window.pywebview.api + event bus
-└── formats.ts         TXT (timed/plain), SRT, JSON exporters
-```
-
-The Python ↔ JS bridge is pywebview's built-in: JS calls
-`window.pywebview.api.<method>(args)`; Python pushes events back via
-`window.evaluate_js("window.__emit(event, payload)")`.
-
-Audio playback uses a tiny range-supporting HTTP server on `127.0.0.1` (random
-port) so `<audio>` can stream + seek without loading the whole file into the
-webview's JS memory.
-
-## Choices worth knowing about
-
-- **Transcription params** (`language=<picked>`, `temperature=0`, `vad_filter=False`,
-  `beam_size=5`) are deliberate for the language-learning use case — verbatim
-  fidelity over clean output. Don't change these to make output "look better"
-  without understanding what you're losing.
-- **Cancellable downloads use `multiprocessing`** so the HF download can be
-  killed mid-file (`proc.terminate()`). Partial files in the HF cache resume on
-  the next download — that's intentional.
-- **Model swap unloads first** (`del model; gc.collect()`) before loading a new
-  one. On a 6 GB GPU, loading on top of an existing model would OOM. This is
-  why the bigger model swaps take a couple of seconds.
-- **WebView2 mic permission is auto-granted** via
-  `--use-fake-ui-for-media-stream`. Fine for a local single-user tool; remove
-  before shipping anywhere multi-user.
-
-## Roadmap (vague, not promises)
-
-- Annotation layer: mark segments as gap / error / ok, attach corrected phrasing
-- Anki export (CSV or `.apkg`) from flagged annotations
-- Batch folder transcribe (one model load, many files)
-- Linux / macOS support without manual DLL paths
-- Pre-built installer (PyInstaller / NSIS)
 
 ## License
 
@@ -289,7 +284,7 @@ MIT — see [LICENSE](LICENSE).
 
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for the Whisper inference runtime
 - [ivrit-ai](https://huggingface.co/ivrit-ai) for the Hebrew Whisper fine-tune
-- [pywebview](https://pywebview.flowrl.com/) for the native window + JS bridge
+- [Qt for Python](https://doc.qt.io/qtforpython-6/) for the desktop shell and embedded browser
 - [wavesurfer.js](https://wavesurfer-js.org/) for the waveform rendering
 - [Lucide](https://lucide.dev/) for the icons
 
@@ -314,3 +309,25 @@ the browser and selected source](https://developer.mozilla.org/en-US/docs/Web/AP
 If no audio track is shared, recording stops with an explanation. Browser speaker
 selection applies to recorded/imported audio and reports permission or device
 errors before saving a choice.
+
+### Qt media browser
+
+Install/update `backend/requirements.txt` in the same Python environment used by the app, then restart the desktop app. PySide6 supplies Qt WebEngine. On Linux, the launcher prefers `/usr/bin/python` when it has PySide6/Qt ≥6.8 and psutil, because distribution Qt builds can supply AAC/H.264 codecs missing from PyPI wheels. Otherwise it uses the app’s Python. Set `SPEAKTOSPEECH_BROWSER_PYTHON` to select a specific browser runtime; frozen builds use their bundled runtime. The Qt shell runs separately from the transcription backend. Its local app page and media view are native children of the same window. Only the local app page has a Python bridge; website pages use a separate profile and have no backend API access.
+
+For standalone testing:
+
+```sh
+.venv/bin/python backend/media_browser.py --url https://www.youtube.com/
+```
+
+The desktop Media panel is a focused player, not a general-purpose browser. Its **Sign in** action opens a separate account window, sharing the website profile under `~/SpeakToSpeech/media-browser/`. Account navigation is limited to YouTube authentication routes and Google account/consent hosts; account pages never receive the application bridge. Closing sign-in reloads the selected video. Some identity providers may reject embedded browsers; successful authentication must be checked on the target machine. The app's sign-in button is styled to match the UI; credential forms remain the provider's own pages.
+
+In-app playback uses the original HTML video element and best-effort controls, so YouTube site changes may require updates. Test real playback, login persistence after restarting, and recorded audio on the target machine. Browser-only frontend mode opens video links externally. The standalone browser command above remains a developer tool with navigation controls.
+
+Browser smoke test (generated local media, temporary profile):
+
+```sh
+QT_QPA_PLATFORM=offscreen QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu python tests/qt_desktop_smoke.py
+```
+
+The smoke test requires PySide6 and psutil. Chromium’s sandbox remains enabled; run it outside restrictive tool/container sandboxes.

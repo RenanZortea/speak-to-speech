@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Loader2, Bookmark, RotateCcw, Snail, Turtle, Play, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import type { YouTubeVideo } from './youtube';
+import { youtubeErrorMessage } from './media';
 import { loadYouTubeApi, type YouTubePlayer as Player } from './youtubePlayer';
 
 import type { RecordingController } from "./Recorder";
@@ -54,7 +55,7 @@ export function YouTubePlayer({ video, recorder, active }: { video: YouTubeVideo
             if (disposed) return;
             window.clearTimeout(timeout);
             setReady(false);
-            setError(`YouTube could not play this video (error ${data}). Try another video that allows embedding.`);
+            setError(youtubeErrorMessage(data));
           },
         },
       });

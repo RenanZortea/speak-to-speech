@@ -1,5 +1,5 @@
 """
-SpeakToSpeech — pywebview entry point.
+SpeakToSpeech — Python backend and Qt desktop entry point.
 
 Run dev (Vite at :5173 must be running):
     python backend/main.py --dev
@@ -23,6 +23,16 @@ os.environ.setdefault(
 # (known WebKitGTK/NVIDIA bug, same one Tauri apps hit). Disable it before the
 # webview module spawns WebKit's processes. setdefault so users can override.
 import sys
+if __name__ == "__main__" and "--desktop-shell" in sys.argv:
+    from desktop_shell import main as desktop_shell_main
+    raise SystemExit(desktop_shell_main([arg for arg in sys.argv[1:] if arg != "--desktop-shell"]))
+
+# The frozen executable doubles as the Qt child process. Dispatch before loading
+# GTK, CUDA, transcription models, or the privileged application API.
+if __name__ == "__main__" and "--media-browser" in sys.argv:
+    from media_browser import main as media_browser_main
+    raise SystemExit(media_browser_main([arg for arg in sys.argv[1:] if arg != "--media-browser"]))
+
 if sys.platform == "linux" and os.path.exists("/proc/driver/nvidia"):
     os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 
@@ -240,6 +250,16 @@ class Api:
 
     def delete_session(self, session_id: str):
         return {"ok": self._sessions.delete_session(session_id)}
+
+    def close_media_browser(self):
+        raise RuntimeError("Restart the app to use the in-app media browser.")
+
+    def open_media_browser(self, url):
+        raise RuntimeError("Restart the app to use the in-app media browser.")
+
+    def open_media_url(self, url):
+        from media_links import open_media_url
+        return open_media_url(url)
 
     # ---- Resources / settings ----
 
@@ -481,60 +501,37 @@ def main():
             sys.exit(2)
         url = str(PROD_INDEX)
 
+    from desktop_server import DesktopServer
+    from media_browser_process import browser_python
+    import subprocess
+    import tempfile
+
     api = Api()
-    window = webview.create_window(
-        "SpeakToSpeech",
-        url=url,
-        js_api=api,
-        width=1100,
-        height=800,
-        min_size=(700, 500),
-    )
-    window.events.closed += api._native_audio.close
-    api._set_window(window)
-    if sys.platform == "linux":
-        _grant_media_permissions_linux(window)
-    # private_mode defaults to True; on the GTK backend that sets WebKit's
-    # enable-html5-local-storage=False, which removes window.localStorage from
-    # JS entirely ("ReferenceError: Can't find variable: localStorage" in
-    # App.tsx). WebView2 on Windows keeps localStorage in private mode, so
-    # this only bites on Linux. private_mode=False also makes storage_path
-    # take effect (private mode short-circuits to an ephemeral context).
-    webview.start(
-        debug=dev,
-        private_mode=False,
-        storage_path=str(DEFAULT_BASE / "webview"),
-    )
-
-
-def _grant_media_permissions_linux(window):
-    """Auto-grant getUserMedia (mic) on the WebKitGTK backend.
-
-    On Windows, WebView2's ``--use-fake-ui-for-media-stream`` browser arg silently
-    grants mic access. WebKitGTK has no equivalent: ``enable_media_stream`` is on,
-    but WebKit *denies* every permission request unless a ``permission-request``
-    handler is connected, so ``getUserMedia`` fails and recording never starts.
-    Connect the signal (once the webview exists, on ``shown``) and allow media
-    requests. Safe for a local single-user tool; do not ship in a multi-user app."""
-    def on_shown():
-        try:
-            from webview.platforms.gtk import BrowserView
-            from gi.repository import WebKit2
-            view = BrowserView.instances.get(window.uid)
-            if view is None:
-                return
-
-            def on_permission(_webview, request):
-                if isinstance(request, WebKit2.UserMediaPermissionRequest):
-                    request.allow()
-                    return True
-                return False
-
-            view.webview.connect("permission-request", on_permission)
-        except Exception as e:
-            print(f"mic permission hook failed: {e}", file=sys.stderr)
-
-    window.events.shown += on_shown
+    server = DesktopServer(api, PROD_INDEX.parent)
+    api._set_window(server)
+    try:
+        with tempfile.TemporaryDirectory(prefix="speaktospeech-desktop-") as temporary:
+            config = Path(temporary) / "shell.json"
+            config.write_text(json.dumps({
+                "server": server.url, "token": server.token, "methods": server.methods,
+                "url": DEV_URL if dev else server.url + "/index.html",
+                "profile": str(DEFAULT_BASE), "parent": os.getpid(),
+            }), encoding="utf-8")
+            command = ([sys.executable, "--desktop-shell"] if getattr(sys, "frozen", False)
+                       else [browser_python(), str(Path(__file__).with_name("desktop_shell.py"))])
+            process = subprocess.Popen(command + ["--config", str(config)])
+            try:
+                code = process.wait()
+                if code:
+                    raise RuntimeError(f"Qt desktop shell exited with code {code}. Check the Qt installation and display support.")
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+    finally:
+        api._monitor.stop()
+        api._native_audio.close()
+        server.close()
 
 
 def _setup_frozen_logging():

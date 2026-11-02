@@ -160,7 +160,7 @@ const listeners = new Map<string, Set<Listener>>();
 
 declare global {
   interface Window {
-    pywebview?: { api: any };
+    pywebview?: { api: any; embeddedMedia?: boolean };
     __emit: (event: string, payload: any) => void;
   }
 }
@@ -200,7 +200,51 @@ export type NativeAudioDevices = {
   outputs?: { id: string; label: string }[];
 };
 
+export type NativeMediaState = {
+  available?: boolean; paused?: boolean; time?: number; duration?: number; rate?: number;
+  signingIn?: boolean; error?: string;
+};
+export type MediaCommand = 'status' | 'play' | 'pause' | 'seek' | 'seek_to' | 'rate';
+
 export const api = {
+  async mediaCommand(action: MediaCommand, value = 0): Promise<NativeMediaState> {
+    const bridge = await ready();
+    if (typeof bridge.media_command !== 'function') throw new Error('Restart the desktop app to enable video controls.');
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      return await Promise.race([
+        bridge.media_command(action, value),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('YouTube is not responding. Reload the video.')), 8000); }),
+      ]);
+    } finally { clearTimeout(timer!); }
+  },
+  async mediaSignIn(): Promise<void> {
+    const bridge = await ready();
+    if (typeof bridge.media_sign_in !== 'function') throw new Error('Restart the desktop app to enable sign-in.');
+    await bridge.media_sign_in();
+  },
+  async setMediaBounds(bounds: { visible: boolean; x?: number; y?: number; width?: number; height?: number; clip?: { x: number; y: number; width: number; height: number } }): Promise<void> {
+    const bridge = await ready();
+    if (typeof bridge.set_media_bounds === "function") await bridge.set_media_bounds(bounds);
+  },
+  async closeMediaBrowser(): Promise<void> {
+    const bridge = await ready();
+    if (typeof bridge.close_media_browser === "function") await bridge.close_media_browser();
+  },
+  async openMediaBrowser(url: string): Promise<void> {
+    const bridge = await ready();
+    if (typeof bridge.open_media_browser !== "function") {
+      throw new Error("Restart the desktop app to enable the Qt media browser.");
+    }
+    await bridge.open_media_browser(url);
+  },
+  async openMediaUrl(url: string): Promise<void> {
+    const bridge = await ready();
+    if (typeof bridge.open_media_url !== "function") {
+      throw new Error("Restart the desktop app to enable opening media links.");
+    }
+    await bridge.open_media_url(url);
+  },
   async getAudioDevices(): Promise<NativeAudioDevices> {
     const bridge = await ready();
     if (typeof bridge.get_audio_devices !== "function") {

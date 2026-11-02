@@ -78,7 +78,7 @@ if (-not $SkipFrontend) {
 
 # 2. PyInstaller
 Write-Step 2 4 "Ensuring PyInstaller is installed..."
-& $VenvPython -m pip install --quiet --upgrade "pyinstaller>=6.0"
+& $VenvPython -m pip install --quiet --upgrade "pyinstaller>=6.0" "PySide6>=6.8,<7"
 if ($LASTEXITCODE -ne 0) { throw "Failed to install/upgrade PyInstaller" }
 
 Write-Step 3 4 "Running PyInstaller (this takes a few minutes)..."

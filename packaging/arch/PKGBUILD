@@ -17,7 +17,8 @@ license=('MIT')
 # MediaRecorder needs (opus/vorbis+webmmux, or aac+qtmux). Without them, in-app
 # recording fails at start() with "MediaRecorder unsupported on this platform".
 depends=('webkit2gtk-4.1' 'gtk3' 'ffmpeg' 'libpulse'
-         'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
+         'gst-plugins-base' 'gst-plugins-good' 'gst-libav'
+         'pyside6' 'qt6-webengine' 'python-psutil' 'nss' 'libxkbcommon' 'libxcb' 'xcb-util-cursor' 'libxcomposite' 'libxdamage' 'libxrandr' 'alsa-lib')
 makedepends=('python311' 'python-gobject' 'cairo' 'gobject-introspection' 'nodejs' 'npm' 'git')
 options=('!strip')  # prebuilt CUDA/torch wheels aren't ours to strip
 

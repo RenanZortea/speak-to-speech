@@ -100,6 +100,11 @@ hiddenimports = [
     "pynvml",
     # Local module imported lazily inside Api methods / app_settings.
     "ollama_client",
+    "media_browser",
+    "desktop_shell",
+    "desktop_server",
+    "PySide6.QtWebChannel",
+    "PySide6.QtWebEngineWidgets",
 ]
 
 # -----------------------------------------------------------------------------
@@ -112,7 +117,7 @@ excludes = [
     "jax", "jaxlib", "flax",
     "matplotlib", "pandas",
     "PIL", "Pillow",
-    "PyQt5", "PyQt6", "PySide2", "PySide6",
+    "PyQt5", "PyQt6", "PySide2",
     "IPython", "ipykernel", "jupyter", "notebook",
     "pytest", "sphinx", "babel",
 ]

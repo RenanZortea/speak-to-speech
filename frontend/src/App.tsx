@@ -45,7 +45,7 @@ import { SettingsModal } from "./SettingsModal";
 import { WorkspaceToolbar } from "./Sidebar";
 import { VowelStudio } from "./VowelStudio";
 import { Recorder, useRecorder } from "./Recorder";
-import { YouTubeWidget } from "./YouTubeWidget";
+import { MediaWidget } from "./MediaWidget";
 import type { TrackedFormants } from "./formantTracker";
 
 type AppStatus =
@@ -620,7 +620,7 @@ export function App() {
           }}>
             <button className={`tab ${mainView === "transcript" ? "active" : ""}`} role="tab" id="tab-transcript" aria-controls="panel-transcript" aria-selected={mainView === "transcript"} tabIndex={mainView === "transcript" ? 0 : -1} onClick={() => setMainView("transcript")}>Transcribe</button>
             <button className={`tab ${mainView === "vowels" ? "active" : ""}`} role="tab" id="tab-vowels" aria-controls="panel-vowels" aria-selected={mainView === "vowels"} tabIndex={mainView === "vowels" ? 0 : -1} onClick={() => setMainView("vowels")}>Vowel practice</button>
-            <button className={`tab ${mainView === "youtube" ? "active" : ""}`} role="tab" id="tab-youtube" aria-controls="panel-youtube" aria-selected={mainView === "youtube"} tabIndex={mainView === "youtube" ? 0 : -1} onClick={() => setMainView("youtube")}>YouTube</button>
+            <button className={`tab ${mainView === "youtube" ? "active" : ""}`} role="tab" id="tab-youtube" aria-controls="panel-youtube" aria-selected={mainView === "youtube"} tabIndex={mainView === "youtube" ? 0 : -1} onClick={() => setMainView("youtube")}>Media</button>
           </nav>
           <div role="tabpanel" id="panel-transcript" className={!audio || recordingBusy ? "record-panel" : ""} aria-labelledby="tab-transcript" hidden={mainView !== "transcript"}>
           {(!audio || recordingBusy) && <section className={`record-stage ${audio && !recordingBusy ? "has-audio" : ""}`} aria-label="Record audio">
@@ -638,7 +638,7 @@ export function App() {
           </div>
           <div className={mainView === "youtube" ? "youtube-practice-layout" : "shared-player-layout"}>
           <div role="tabpanel" id="panel-youtube" aria-labelledby="tab-youtube" hidden={mainView !== "youtube"}>
-            <YouTubeWidget recorder={youtubeRecorder} active={mainView === "youtube"} />
+            <MediaWidget recorder={youtubeRecorder} active={mainView === "youtube"} />
           </div>
           {audio && !recordingBusy && <AudioBar
             key={workspace}
